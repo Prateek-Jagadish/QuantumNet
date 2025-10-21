@@ -1,0 +1,298 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - QuantumNet{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>
+                <i class="fas fa-tachometer-alt text-primary me-2"></i>
+                Dashboard
+            </h2>
+            <div class="text-muted">
+                Welcome back, <strong>{{ user.username }}</strong>!
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Statistics Cards -->
+<div class="row mb-4">
+    <div class="col-md-3 mb-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">Total Messages</h6>
+                        <h3 class="mb-0">{{ stats.total_messages }}</h3>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-comments fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">Active Sessions</h6>
+                        <h3 class="mb-0">{{ stats.active_sessions }}</h3>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-users fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card bg-warning text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">Security Events</h6>
+                        <h3 class="mb-0">{{ stats.security_events }}</h3>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-shield-alt fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card bg-info text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">Account Status</h6>
+                        <h5 class="mb-0">Active</h5>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-check-circle fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Actions -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-bolt text-warning me-2"></i>
+                    Quick Actions
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3 mb-3">
+                        <a href="{{ url_for('chat') }}" class="btn btn-primary w-100">
+                            <i class="fas fa-comments me-2"></i>
+                            Secure Chat
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <a href="{{ url_for('security') }}" class="btn btn-warning w-100">
+                            <i class="fas fa-shield-alt me-2"></i>
+                            Security Monitor
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <button class="btn btn-success w-100" onclick="generateQuantumKey()">
+                            <i class="fas fa-key me-2"></i>
+                            Generate Key
+                        </button>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <button class="btn btn-info w-100" onclick="testEncryption()">
+                            <i class="fas fa-lock me-2"></i>
+                            Test Encryption
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Activity -->
+<div class="row">
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-history text-info me-2"></i>
+                    Recent Activity
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="activity-list">
+                    <div class="activity-item">
+                        <i class="fas fa-user-plus text-success me-2"></i>
+                        <span>Account created</span>
+                        <small class="text-muted d-block">{{ user.created_at }}</small>
+                    </div>
+                    {% if user.last_login %}
+                    <div class="activity-item">
+                        <i class="fas fa-sign-in-alt text-primary me-2"></i>
+                        <span>Last login</span>
+                        <small class="text-muted d-block">{{ user.last_login }}</small>
+                    </div>
+                    {% endif %}
+                    <div class="activity-item">
+                        <i class="fas fa-key text-warning me-2"></i>
+                        <span>Quantum key generation available</span>
+                        <small class="text-muted d-block">Click "Generate Key" to create a new quantum key</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-line text-success me-2"></i>
+                    Security Status
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="security-status">
+                    <div class="status-item">
+                        <i class="fas fa-check-circle text-success me-2"></i>
+                        <span>Account Security: <strong>Active</strong></span>
+                    </div>
+                    <div class="status-item">
+                        <i class="fas fa-check-circle text-success me-2"></i>
+                        <span>Quantum Protocol: <strong>Ready</strong></span>
+                    </div>
+                    <div class="status-item">
+                        <i class="fas fa-check-circle text-success me-2"></i>
+                        <span>Encryption: <strong>AES-256</strong></span>
+                    </div>
+                    <div class="status-item">
+                        <i class="fas fa-check-circle text-success me-2"></i>
+                        <span>ML Monitoring: <strong>Active</strong></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Quantum Key Status -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-atom text-primary me-2"></i>
+                    Quantum Key Status
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="key-status">
+                    <div class="text-center">
+                        <i class="fas fa-key fa-3x text-muted mb-3"></i>
+                        <p class="text-muted">No quantum key generated yet</p>
+                        <button class="btn btn-primary" onclick="generateQuantumKey()">
+                            <i class="fas fa-key me-2"></i>Generate Quantum Key
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function generateQuantumKey() {
+    const button = event.target;
+    const originalText = button.innerHTML;
+    
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Generating...';
+    button.disabled = true;
+    
+    fetch('/generate_key', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            session_id: 'dashboard_' + Date.now()
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('key-status').innerHTML = `
+                <div class="alert alert-success">
+                    <h6><i class="fas fa-check-circle me-2"></i>Quantum Key Generated Successfully!</h6>
+                    <p class="mb-1"><strong>Key ID:</strong> ${data.key_id}</p>
+                    <p class="mb-1"><strong>Key Length:</strong> ${data.key_length} bits</p>
+                    <p class="mb-0"><strong>Expires:</strong> ${data.expiry_hours} hours</p>
+                </div>
+            `;
+        } else {
+            document.getElementById('key-status').innerHTML = `
+                <div class="alert alert-danger">
+                    <h6><i class="fas fa-exclamation-triangle me-2"></i>Key Generation Failed</h6>
+                    <p class="mb-0">${data.error}</p>
+                </div>
+            `;
+        }
+    })
+    .catch(error => {
+        document.getElementById('key-status').innerHTML = `
+            <div class="alert alert-danger">
+                <h6><i class="fas fa-exclamation-triangle me-2"></i>Error</h6>
+                <p class="mb-0">Failed to generate quantum key</p>
+            </div>
+        `;
+    })
+    .finally(() => {
+        button.innerHTML = originalText;
+        button.disabled = false;
+    });
+}
+
+function testEncryption() {
+    const testMessage = "This is a test message for quantum encryption!";
+    
+    fetch('/encrypt_message', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            message: testMessage
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Encryption test successful!\n\nEncrypted data length: ' + data.encrypted_data.length + ' characters');
+        } else {
+            alert('Encryption test failed: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('Encryption test error: ' + error.message);
+    });
+}
+</script>
+{% endblock %}

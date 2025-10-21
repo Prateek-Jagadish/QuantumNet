@@ -1,0 +1,55 @@
+# QuantumNet Docker Compose
+
+version: '3.8'
+
+services:
+  quantumnet:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - DATABASE_PATH=/app/data/quantumnet.db
+      - ML_MODEL_PATH=/app/models/security_classifier.pkl
+      - LOG_FILE=/app/logs/quantumnet.log
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  quantumnet-dev:
+    build: .
+    ports:
+      - "5001:5000"
+    environment:
+      - FLASK_ENV=development
+      - DEBUG=true
+      - DATABASE_PATH=/app/data/quantumnet_dev.db
+      - ML_MODEL_PATH=/app/models/security_classifier_dev.pkl
+    volumes:
+      - .:/app
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./logs:/app/logs
+    command: ["python", "run.py"]
+    profiles:
+      - dev
+
+  quantumnet-test:
+    build: .
+    environment:
+      - FLASK_ENV=testing
+      - DATABASE_PATH=:memory:
+      - ML_MODEL_PATH=/app/models/test_classifier.pkl
+    volumes:
+      - .:/app
+    command: ["pytest", "tests/", "-v"]
+    profiles:
+      - test

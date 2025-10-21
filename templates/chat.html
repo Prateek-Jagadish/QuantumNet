@@ -1,0 +1,439 @@
+{% extends "base.html" %}
+
+{% block title %}Secure Chat - QuantumNet{% endblock %}
+
+{% block extra_head %}
+<style>
+.chat-container {
+    height: 600px;
+    display: flex;
+    flex-direction: column;
+}
+
+.chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    background-color: #f8f9fa;
+}
+
+.message-item {
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    border-radius: 0.5rem;
+    background-color: white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.message-item.own-message {
+    background-color: #e3f2fd;
+    margin-left: 2rem;
+}
+
+.message-item.other-message {
+    background-color: #f5f5f5;
+    margin-right: 2rem;
+}
+
+.message-header {
+    display: flex;
+    justify-content-between;
+    align-items-center;
+    margin-bottom: 0.5rem;
+}
+
+.message-username {
+    font-weight: bold;
+    color: #495057;
+}
+
+.message-time {
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+.message-content {
+    margin-bottom: 0.5rem;
+}
+
+.encryption-badge {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.4rem;
+}
+
+.chat-input {
+    margin-top: 1rem;
+}
+
+.online-users {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.user-status {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    margin-bottom: 0.5rem;
+}
+
+.user-status.online {
+    background-color: #d4edda;
+}
+
+.user-status.offline {
+    background-color: #f8d7da;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>
+                <i class="fas fa-comments text-primary me-2"></i>
+                Secure Chat
+            </h2>
+            <div class="d-flex align-items-center">
+                <span class="badge bg-success me-2" id="connection-status">
+                    <i class="fas fa-circle me-1"></i>Connecting...
+                </span>
+                <button class="btn btn-outline-primary btn-sm" onclick="generateQuantumKey()">
+                    <i class="fas fa-key me-1"></i>Generate Key
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Chat Messages -->
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-comments me-2"></i>
+                    Quantum-Secured Messages
+                </h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="chat-container">
+                    <div class="chat-messages" id="chat-messages">
+                        {% for message in messages %}
+                        <div class="message-item {% if message.user_id == session.user_id %}own-message{% else %}other-message{% endif %}">
+                            <div class="message-header">
+                                <span class="message-username">{{ message.username }}</span>
+                                <span class="message-time">{{ message.created_at }}</span>
+                            </div>
+                            <div class="message-content">{{ message.content }}</div>
+                            {% if message.encryption_used %}
+                            <span class="badge bg-success encryption-badge">
+                                <i class="fas fa-lock me-1"></i>Encrypted
+                            </span>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    
+                    <div class="chat-input p-3">
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="message-input" 
+                                   placeholder="Type your secure message..." maxlength="500">
+                            <button class="btn btn-primary" type="button" onclick="sendMessage()">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                        <div class="form-check mt-2">
+                            <input class="form-check-input" type="checkbox" id="use-encryption" checked>
+                            <label class="form-check-label" for="use-encryption">
+                                <i class="fas fa-lock me-1"></i>Use quantum encryption
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Online Users -->
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-users me-2"></i>
+                    Online Users
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="online-users" id="online-users">
+                    <div class="text-center text-muted">
+                        <i class="fas fa-spinner fa-spin me-2"></i>
+                        Loading users...
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Quantum Key Status -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-key me-2"></i>
+                    Quantum Key Status
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="key-status">
+                    <div class="text-center text-muted">
+                        <i class="fas fa-key fa-2x mb-2"></i>
+                        <p class="mb-0">No quantum key</p>
+                        <button class="btn btn-primary btn-sm mt-2" onclick="generateQuantumKey()">
+                            Generate Key
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Security Info -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-shield-alt me-2"></i>
+                    Security Info
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="security-info">
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>Protocol:</span>
+                        <span class="badge bg-primary">BB84</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>Encryption:</span>
+                        <span class="badge bg-success">AES-256</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>Key Length:</span>
+                        <span class="badge bg-info">1000 bits</span>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <span>Monitoring:</span>
+                        <span class="badge bg-warning">ML Active</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let socket;
+let currentUser = '{{ session.username }}';
+let currentUserId = {{ session.user_id }};
+
+// Initialize Socket.IO connection
+document.addEventListener('DOMContentLoaded', function() {
+    socket = io();
+    
+    socket.on('connect', function() {
+        document.getElementById('connection-status').innerHTML = 
+            '<i class="fas fa-circle me-1"></i>Connected';
+        document.getElementById('connection-status').className = 'badge bg-success me-2';
+        
+        // Join chat
+        socket.emit('join_chat');
+    });
+    
+    socket.on('disconnect', function() {
+        document.getElementById('connection-status').innerHTML = 
+            '<i class="fas fa-circle me-1"></i>Disconnected';
+        document.getElementById('connection-status').className = 'badge bg-danger me-2';
+    });
+    
+    socket.on('message_received', function(data) {
+        addMessageToChat(data);
+    });
+    
+    socket.on('user_connected', function(data) {
+        updateOnlineUsers();
+    });
+    
+    socket.on('user_disconnected', function(data) {
+        updateOnlineUsers();
+    });
+    
+    socket.on('error', function(data) {
+        showAlert('Error: ' + data.message, 'danger');
+    });
+    
+    // Load initial online users
+    updateOnlineUsers();
+});
+
+function sendMessage() {
+    const messageInput = document.getElementById('message-input');
+    const message = messageInput.value.trim();
+    const useEncryption = document.getElementById('use-encryption').checked;
+    
+    if (!message) return;
+    
+    if (useEncryption) {
+        // Encrypt message before sending
+        fetch('/encrypt_message', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                message: message
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                socket.emit('send_message', {
+                    message: message,
+                    encrypted: true
+                });
+                messageInput.value = '';
+            } else {
+                showAlert('Encryption failed: ' + data.error, 'warning');
+                // Send unencrypted message as fallback
+                socket.emit('send_message', {
+                    message: message,
+                    encrypted: false
+                });
+                messageInput.value = '';
+            }
+        })
+        .catch(error => {
+            showAlert('Encryption error: ' + error.message, 'danger');
+        });
+    } else {
+        socket.emit('send_message', {
+            message: message,
+            encrypted: false
+        });
+        messageInput.value = '';
+    }
+}
+
+function addMessageToChat(data) {
+    const chatMessages = document.getElementById('chat-messages');
+    const messageDiv = document.createElement('div');
+    
+    const isOwnMessage = data.user_id == currentUserId;
+    messageDiv.className = `message-item ${isOwnMessage ? 'own-message' : 'other-message'}`;
+    
+    const encryptionBadge = data.encryption_used ? 
+        '<span class="badge bg-success encryption-badge"><i class="fas fa-lock me-1"></i>Encrypted</span>' : '';
+    
+    messageDiv.innerHTML = `
+        <div class="message-header">
+            <span class="message-username">${data.username}</span>
+            <span class="message-time">${new Date(data.timestamp).toLocaleTimeString()}</span>
+        </div>
+        <div class="message-content">${data.content}</div>
+        ${encryptionBadge}
+    `;
+    
+    chatMessages.appendChild(messageDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function updateOnlineUsers() {
+    // This would typically fetch from the server
+    // For now, we'll show a placeholder
+    document.getElementById('online-users').innerHTML = `
+        <div class="user-status online">
+            <i class="fas fa-circle text-success me-2"></i>
+            <span>${currentUser} (You)</span>
+        </div>
+        <div class="text-center text-muted mt-3">
+            <small>More users will appear here when they connect</small>
+        </div>
+    `;
+}
+
+function generateQuantumKey() {
+    const button = event.target;
+    const originalText = button.innerHTML;
+    
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Generating...';
+    button.disabled = true;
+    
+    fetch('/generate_key', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            session_id: 'chat_' + Date.now()
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('key-status').innerHTML = `
+                <div class="alert alert-success">
+                    <h6><i class="fas fa-check-circle me-2"></i>Key Generated!</h6>
+                    <p class="mb-1"><strong>Length:</strong> ${data.key_length} bits</p>
+                    <p class="mb-0"><strong>Expires:</strong> ${data.expiry_hours}h</p>
+                </div>
+            `;
+        } else {
+            document.getElementById('key-status').innerHTML = `
+                <div class="alert alert-danger">
+                    <h6><i class="fas fa-exclamation-triangle me-2"></i>Failed</h6>
+                    <p class="mb-0">${data.error}</p>
+                </div>
+            `;
+        }
+    })
+    .catch(error => {
+        document.getElementById('key-status').innerHTML = `
+            <div class="alert alert-danger">
+                <h6><i class="fas fa-exclamation-triangle me-2"></i>Error</h6>
+                <p class="mb-0">Failed to generate key</p>
+            </div>
+        `;
+    })
+    .finally(() => {
+        button.innerHTML = originalText;
+        button.disabled = false;
+    });
+}
+
+function showAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    document.querySelector('.container').insertBefore(alertDiv, document.querySelector('.row'));
+    
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+        if (alertDiv.parentNode) {
+            alertDiv.remove();
+        }
+    }, 5000);
+}
+
+// Allow sending message with Enter key
+document.getElementById('message-input').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        sendMessage();
+    }
+});
+</script>
+{% endblock %}
