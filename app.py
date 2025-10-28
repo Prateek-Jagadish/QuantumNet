@@ -8,6 +8,7 @@ import os
 import sys
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_socketio import SocketIO, emit, join_room, leave_room
+from functools import wraps
 from datetime import datetime
 import json
 
@@ -33,6 +34,16 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 # Global variables
 active_sessions = {}
 user_keys = {}
+session_registry = {}  # { user_id: [session_id1, session_id2, ...] }
+
+# Login required decorator
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
 
 # Initialize components
 with app.app_context():
@@ -170,7 +181,7 @@ def chat():
 
 @app.route('/security')
 def security():
-    """Security monitoring page."""
+    """This is Security monitoring page."""
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
@@ -192,6 +203,18 @@ def security():
     }
     
     return render_template('security.html', user=user, events=security_events, stats=security_stats)
+
+
+@app.route('/bb84-demo')
+def bb84_demo():
+    """BB84 Quantum Key Distribution Demo page."""
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    user_id = session['user_id']
+    user = app.db_manager.get_user_by_id(user_id)
+    
+    return render_template('bb84_demo.html', user=user)
 
 
 @app.route('/generate_key', methods=['POST'])
@@ -277,13 +300,315 @@ def encrypt_message():
         return jsonify({'success': False, 'error': str(e)})
 
 
+@app.route('/api/online-users')
+def get_online_users():
+    """Get list of online users."""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'error': 'Not authenticated'})
+    
+    try:
+        online_users = app.db_manager.get_online_users()
+        return jsonify({
+            'success': True,
+            'users': online_users
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/user-sessions')
+def get_user_sessions():
+    """Get active sessions for current user."""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'error': 'Not authenticated'})
+    
+    user_id = session['user_id']
+    
+    try:
+        # Get sessions from registry
+        user_sessions = session_registry.get(user_id, [])
+        
+        return jsonify({
+            'success': True,
+            'sessions': user_sessions,
+            'session_count': len(user_sessions)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/messages')
+def get_messages():
+    """Get paginated messages for current user."""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'error': 'Not authenticated'})
+    
+    user_id = session['user_id']
+    page = request.args.get('page', 1, type=int)
+    limit = request.args.get('limit', 50, type=int)
+    recipient_id = request.args.get('recipient_id', 0, type=int)
+    
+    try:
+        if recipient_id == 0:
+            # Get general chat messages
+            messages = app.db_manager.get_recent_messages(limit=limit)
+        else:
+            # Get messages between specific users
+            messages = app.db_manager.get_messages_between_users(user_id, recipient_id, limit)
+        
+        return jsonify({
+            'success': True,
+            'messages': messages,
+            'page': page,
+            'limit': limit,
+            'has_more': len(messages) == limit
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/upload', methods=['POST'])
+@login_required
+def upload_file():
+    """Upload and encrypt a file."""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'error': 'Not authenticated'})
+    
+    user_id = session['user_id']
+    recipient_id = int(request.form.get('recipient_id', 0))
+    
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': 'No file provided'})
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'success': False, 'error': 'No file selected'})
+    
+    try:
+        # Read file content
+        file_content = file.read()
+        file_size = len(file_content)
+        
+        # Check file size (max 10MB)
+        if file_size > 10 * 1024 * 1024:
+            return jsonify({'success': False, 'error': 'File too large (max 10MB)'})
+        
+        # Get quantum key for encryption
+        key_bits = None
+        if user_id in user_keys:
+            key_id = user_keys[user_id]
+            key_bits = app.quantum_generator.get_key(key_id)
+        
+        if not key_bits:
+            # Generate new key if none exists
+            result = app.quantum_generator.generate_single_key(
+                user_id=str(user_id),
+                session_id=f"file_{int(datetime.now().timestamp())}",
+                num_bits=1000,
+                enable_eavesdropping=False,
+                expiry_hours=24
+            )
+            if result['success']:
+                user_keys[user_id] = result['key_id']
+                key_bits = app.quantum_generator.get_key(result['key_id'])
+        
+        # Encrypt file content
+        encrypted_content = file_content
+        encryption_used = False
+        
+        if key_bits:
+            try:
+                encryption_result = app.aes_encryption.encrypt(file_content.decode('latin-1'), key_bits)
+                if encryption_result['success']:
+                    encrypted_content = encryption_result['encrypted_data'].encode('latin-1')
+                    encryption_used = True
+            except:
+                # If encryption fails, store unencrypted
+                pass
+        
+        # Create file share record
+        file_share_id = app.db_manager.create_file_share(
+            sender_id=user_id,
+            recipient_id=recipient_id,
+            file_name=file.filename,
+            file_type=file.content_type,
+            file_size=file_size,
+            encrypted_content=encrypted_content,
+            encryption_used=encryption_used
+        )
+        
+        if file_share_id:
+            # Notify recipient via WebSocket
+            socketio.emit('file_received', {
+                'file_id': file_share_id,
+                'file_name': file.filename,
+                'file_size': file_size,
+                'file_type': file.content_type,
+                'sender_id': user_id,
+                'encryption_used': encryption_used,
+                'timestamp': datetime.now().isoformat()
+            }, room=f"user_{recipient_id}" if recipient_id > 0 else 'general')
+            
+            return jsonify({
+                'success': True,
+                'file_id': file_share_id,
+                'file_name': file.filename,
+                'file_size': file_size,
+                'encryption_used': encryption_used
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Failed to save file'})
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/download/<int:file_id>')
+@login_required
+def download_file(file_id):
+    """Download and decrypt a file."""
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    user_id = session['user_id']
+    
+    try:
+        # Get file share record
+        file_share = app.db_manager.get_file_share(file_id)
+        if not file_share:
+            flash('File not found', 'error')
+            return redirect(url_for('chat'))
+        
+        # Check if user has access to this file
+        if file_share['sender_id'] != user_id and file_share['recipient_id'] != user_id:
+            flash('Access denied', 'error')
+            return redirect(url_for('chat'))
+        
+        # Decrypt file content if encrypted
+        file_content = file_share['encrypted_content']
+        
+        if file_share['encryption_used'] and user_id in user_keys:
+            key_id = user_keys[user_id]
+            key_bits = app.quantum_generator.get_key(key_id)
+            
+            if key_bits:
+                try:
+                    decryption_result = app.aes_encryption.decrypt(
+                        file_content.decode('latin-1'), 
+                        key_bits
+                    )
+                    if decryption_result['success']:
+                        file_content = decryption_result['decrypted_message'].encode('latin-1')
+                except:
+                    # If decryption fails, return encrypted content
+                    pass
+        
+        # Create response with file
+        from flask import Response
+        return Response(
+            file_content,
+            mimetype=file_share['file_type'],
+            headers={
+                'Content-Disposition': f'attachment; filename="{file_share["file_name"]}"'
+            }
+        )
+    
+    except Exception as e:
+        flash(f'Download error: {str(e)}', 'error')
+        return redirect(url_for('chat'))
+
+
+@app.route('/upload-audio', methods=['POST'])
+@login_required
+def upload_audio():
+    """Upload and encrypt an audio file."""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'error': 'Not authenticated'})
+    
+    user_id = session['user_id']
+    recipient_id = int(request.form.get('recipient_id', 0))
+    
+    if 'audio' not in request.files:
+        return jsonify({'success': False, 'error': 'No audio file provided'})
+    
+    audio_file = request.files['audio']
+    if audio_file.filename == '':
+        return jsonify({'success': False, 'error': 'No audio file selected'})
+    
+    try:
+        # Read audio content
+        audio_content = audio_file.read()
+        audio_size = len(audio_content)
+        
+        # Check file size (max 5MB for audio)
+        if audio_size > 5 * 1024 * 1024:
+            return jsonify({'success': False, 'error': 'Audio file too large (max 5MB)'})
+        
+        # Get quantum key for encryption
+        key_bits = None
+        if user_id in user_keys:
+            key_id = user_keys[user_id]
+            key_bits = app.quantum_generator.get_key(key_id)
+        
+        # Encrypt audio content
+        encrypted_content = audio_content
+        encryption_used = False
+        
+        if key_bits:
+            try:
+                encryption_result = app.aes_encryption.encrypt(audio_content.decode('latin-1'), key_bits)
+                if encryption_result['success']:
+                    encrypted_content = encryption_result['encrypted_data'].encode('latin-1')
+                    encryption_used = True
+            except:
+                pass
+        
+        # Create file share record for audio
+        audio_share_id = app.db_manager.create_file_share(
+            sender_id=user_id,
+            recipient_id=recipient_id,
+            file_name=f"voice_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav",
+            file_type='audio/wav',
+            file_size=audio_size,
+            encrypted_content=encrypted_content,
+            encryption_used=encryption_used
+        )
+        
+        if audio_share_id:
+            # Notify recipient via WebSocket
+            socketio.emit('voice_message_received', {
+                'voice_id': audio_share_id,
+                'sender_id': user_id,
+                'file_size': audio_size,
+                'encryption_used': encryption_used,
+                'timestamp': datetime.now().isoformat()
+            }, room=f"user_{recipient_id}" if recipient_id > 0 else 'general')
+            
+            return jsonify({
+                'success': True,
+                'voice_id': audio_share_id,
+                'file_size': audio_size,
+                'encryption_used': encryption_used
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Failed to save audio'})
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
 # SocketIO Events
 @socketio.on('connect')
-def handle_connect():
+def handle_connect(auth=None):
     """Handle client connection."""
     if 'user_id' in session:
         user_id = session['user_id']
         username = session['username']
+        
+        # Register session for cross-device sync
+        if user_id not in session_registry:
+            session_registry[user_id] = []
+        session_registry[user_id].append(request.sid)
         
         # Add user to active sessions
         active_sessions[user_id] = {
@@ -292,17 +617,31 @@ def handle_connect():
             'socket_id': request.sid
         }
         
+        # Update user presence in database
+        app.db_manager.update_user_presence(user_id, True)
+        
+        # Create/update device record
+        device_info = request.headers.get('User-Agent', 'Unknown')
+        app.db_manager.create_device(
+            user_id=user_id,
+            device_id=request.sid,
+            device_name=f"Web Browser - {device_info[:50]}",
+            browser=request.headers.get('User-Agent', 'Unknown'),
+            ip_address=request.remote_addr
+        )
+        
         # Join user to their personal room
         join_room(f"user_{user_id}")
         
-        # Notify other users
-        emit('user_connected', {
+        # Notify other users about presence change
+        emit('user_status_changed', {
             'user_id': user_id,
             'username': username,
-            'timestamp': datetime.now().isoformat()
+            'status': 'online',
+            'last_seen': datetime.now().isoformat()
         }, room='general', include_self=False)
         
-        print(f"User {username} connected")
+        print(f"User {username} came online (sessions: {len(session_registry[user_id])})")
 
 
 @socketio.on('disconnect')
@@ -312,21 +651,33 @@ def handle_disconnect():
         user_id = session['user_id']
         username = session['username']
         
-        # Remove from active sessions
-        if user_id in active_sessions:
-            del active_sessions[user_id]
+        # Remove session from registry
+        if user_id in session_registry and request.sid in session_registry[user_id]:
+            session_registry[user_id].remove(request.sid)
+        
+        # If no more sessions for this user, mark as offline
+        if user_id not in session_registry or len(session_registry[user_id]) == 0:
+            # Update user presence in database
+            app.db_manager.update_user_presence(user_id, False)
+            
+            # Remove from active sessions
+            if user_id in active_sessions:
+                del active_sessions[user_id]
+            
+            # Notify other users about presence change
+            emit('user_status_changed', {
+                'user_id': user_id,
+                'username': username,
+                'status': 'offline',
+                'last_seen': datetime.now().isoformat()
+            }, room='general', include_self=False)
+            
+            print(f"User {username} went offline")
+        else:
+            print(f"User {username} disconnected from one device (sessions remaining: {len(session_registry[user_id])})")
         
         # Leave user room
         leave_room(f"user_{user_id}")
-        
-        # Notify other users
-        emit('user_disconnected', {
-            'user_id': user_id,
-            'username': username,
-            'timestamp': datetime.now().isoformat()
-        }, room='general', include_self=False)
-        
-        print(f"User {username} disconnected")
 
 
 @socketio.on('join_chat')
@@ -352,9 +703,10 @@ def handle_send_message(data):
         emit('error', {'message': 'Not authenticated'})
         return
     
-    user_id = session['user_id']
+    sender_id = session['user_id']
     username = session['username']
     message_text = data.get('message', '')
+    recipient_id = data.get('recipient_id', None)  # For direct messages
     
     if not message_text:
         emit('error', {'message': 'No message provided'})
@@ -365,8 +717,8 @@ def handle_send_message(data):
         encrypted_message = message_text
         encryption_used = False
         
-        if user_id in user_keys:
-            key_id = user_keys[user_id]
+        if sender_id in user_keys:
+            key_id = user_keys[sender_id]
             quantum_key = app.quantum_generator.get_key(key_id)
             
             if quantum_key:
@@ -375,30 +727,65 @@ def handle_send_message(data):
                     encrypted_message = encryption_result['encrypted_data']
                     encryption_used = True
         
+        # For now, we'll use a general chat (recipient_id = 0 for broadcast)
+        if not recipient_id:
+            recipient_id = 0  # General chat
+        
         # Save message to database
         message_id = app.db_manager.create_message(
-            user_id=user_id,
+            sender_id=sender_id,
+            recipient_id=recipient_id,
             content=message_text,
             encrypted_content=encrypted_message,
             encryption_used=encryption_used
         )
         
-        # Broadcast message
+        # Prepare message data
         message_data = {
             'id': message_id,
-            'user_id': user_id,
+            'sender_id': sender_id,
+            'recipient_id': recipient_id,
             'username': username,
             'content': message_text,
             'encrypted_content': encrypted_message,
             'encryption_used': encryption_used,
+            'status': 'pending',
             'timestamp': datetime.now().isoformat()
         }
         
-        emit('message_received', message_data, room='general')
+        # Send to recipient(s) - for general chat, broadcast to all
+        if recipient_id == 0:
+            emit('message_received', message_data, room='general')
+        else:
+            # Send to specific recipient - broadcast to ALL their active sessions
+            if recipient_id in session_registry:
+                for session_id in session_registry[recipient_id]:
+                    emit('message_received', message_data, room=session_id)
+            else:
+                # Fallback to user room if session registry not available
+                emit('message_received', message_data, room=f"user_{recipient_id}")
+        
+        # Mark as delivered immediately (since we're using WebSocket)
+        app.db_manager.update_message_status(message_id, 'delivered')
+        
+        # Notify sender about delivery - broadcast to ALL their sessions
+        if sender_id in session_registry:
+            for session_id in session_registry[sender_id]:
+                emit('message_delivered', {
+                    'message_id': message_id,
+                    'status': 'delivered',
+                    'delivered_at': datetime.now().isoformat()
+                }, room=session_id)
+        else:
+            emit('message_delivered', {
+                'message_id': message_id,
+                'status': 'delivered',
+                'delivered_at': datetime.now().isoformat()
+            }, room=f"user_{sender_id}")
         
         # Log security event
         app.db_manager.create_security_event(
-            user_id=user_id,
+            user_id=sender_id,
             event_type='MESSAGE_SENT',
             description=f'Message sent (encrypted: {encryption_used})',
             threat_level='LOW'
@@ -406,6 +793,111 @@ def handle_send_message(data):
         
     except Exception as e:
         emit('error', {'message': f'Failed to send message: {str(e)}'})
+
+
+@socketio.on('mark_as_read')
+def handle_mark_as_read(data):
+    """Handle marking message as read."""
+    if 'user_id' not in session:
+        return
+    
+    user_id = session['user_id']
+    message_id = data.get('message_id')
+    
+    if not message_id:
+        return
+    
+    try:
+        # Update message status to read
+        success = app.db_manager.update_message_status(message_id, 'read')
+        
+        if success:
+            # Get the sender of the message to notify them
+            # For now, we'll broadcast to all users (in a real app, you'd query the message sender)
+            # Notify all users that message was read
+            emit('message_read', {
+                'message_id': message_id,
+                'status': 'read',
+                'read_at': datetime.now().isoformat()
+            }, room='general')
+            
+            print(f"Message {message_id} marked as read by user {user_id}")
+        
+    except Exception as e:
+        print(f"Error marking message as read: {e}")
+
+
+@socketio.on('message_delivered')
+def handle_message_delivered(data):
+    """Handle message delivery confirmation."""
+    if 'user_id' not in session:
+        return
+    
+    user_id = session['user_id']
+    message_id = data.get('message_id')
+    
+    if not message_id:
+        return
+    
+    try:
+        # Update message status to delivered
+        success = app.db_manager.update_message_status(message_id, 'delivered')
+        
+        if success:
+            print(f"Message {message_id} delivered to user {user_id}")
+        
+    except Exception as e:
+        print(f"Error updating message delivery: {e}")
+
+
+@socketio.on('typing_start')
+def handle_typing_start(data):
+    """Handle user starting to type."""
+    if 'user_id' not in session:
+        return
+    
+    user_id = session['user_id']
+    username = session['username']
+    recipient_id = data.get('recipient_id', 0)  # 0 for general chat
+    
+    # Notify recipient(s) that user is typing
+    if recipient_id == 0:
+        emit('user_typing', {
+            'user_id': user_id,
+            'username': username,
+            'timestamp': datetime.now().isoformat()
+        }, room='general', include_self=False)
+    else:
+        emit('user_typing', {
+            'user_id': user_id,
+            'username': username,
+            'timestamp': datetime.now().isoformat()
+        }, room=f"user_{recipient_id}")
+
+
+@socketio.on('typing_stop')
+def handle_typing_stop(data):
+    """Handle user stopping typing."""
+    if 'user_id' not in session:
+        return
+    
+    user_id = session['user_id']
+    username = session['username']
+    recipient_id = data.get('recipient_id', 0)  # 0 for general chat
+    
+    # Notify recipient(s) that user stopped typing
+    if recipient_id == 0:
+        emit('user_stopped_typing', {
+            'user_id': user_id,
+            'username': username,
+            'timestamp': datetime.now().isoformat()
+        }, room='general', include_self=False)
+    else:
+        emit('user_stopped_typing', {
+            'user_id': user_id,
+            'username': username,
+            'timestamp': datetime.now().isoformat()
+        }, room=f"user_{recipient_id}")
 
 
 if __name__ == '__main__':

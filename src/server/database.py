@@ -51,6 +51,8 @@ class DatabaseManager:
                         password_hash TEXT NOT NULL,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         last_login TIMESTAMP,
+                        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        is_online BOOLEAN DEFAULT 0,
                         is_active BOOLEAN DEFAULT 1
                     )
                 ''')
@@ -59,12 +61,17 @@ class DatabaseManager:
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS messages (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER NOT NULL,
+                        sender_id INTEGER NOT NULL,
+                        recipient_id INTEGER NOT NULL,
                         content TEXT NOT NULL,
                         encrypted_content TEXT,
                         encryption_used BOOLEAN DEFAULT 0,
+                        status TEXT DEFAULT 'pending',
+                        delivered_at TIMESTAMP,
+                        read_at TIMESTAMP,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (user_id) REFERENCES users (id)
+                        FOREIGN KEY (sender_id) REFERENCES users (id),
+                        FOREIGN KEY (recipient_id) REFERENCES users (id)
                     )
                 ''')
                 
@@ -95,6 +102,39 @@ class DatabaseManager:
                         expires_at TIMESTAMP,
                         is_active BOOLEAN DEFAULT 1,
                         FOREIGN KEY (user_id) REFERENCES users (id)
+                    )
+                ''')
+                
+                # Create devices table for multi-device support
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS devices (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        device_id TEXT NOT NULL,
+                        device_name TEXT,
+                        browser TEXT,
+                        os TEXT,
+                        ip_address TEXT,
+                        last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        is_active BOOLEAN DEFAULT 1,
+                        FOREIGN KEY (user_id) REFERENCES users (id)
+                    )
+                ''')
+                
+                # Create file_shares table for file sharing
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS file_shares (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        sender_id INTEGER NOT NULL,
+                        recipient_id INTEGER NOT NULL,
+                        file_name TEXT NOT NULL,
+                        file_type TEXT NOT NULL,
+                        file_size INTEGER NOT NULL,
+                        encrypted_content BLOB NOT NULL,
+                        encryption_used BOOLEAN DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (sender_id) REFERENCES users (id),
+                        FOREIGN KEY (recipient_id) REFERENCES users (id)
                     )
                 ''')
                 
@@ -291,14 +331,15 @@ class DatabaseManager:
             print(f"Error getting user: {e}")
             return None
     
-    def create_message(self, user_id: int, content: str, 
+    def create_message(self, sender_id: int, recipient_id: int, content: str, 
                       encrypted_content: Optional[str] = None,
                       encryption_used: bool = False) -> Optional[int]:
         """
         Create a new message.
         
         Args:
-            user_id: User ID
+            sender_id: Sender user ID
+            recipient_id: Recipient user ID
             content: Message content
             encrypted_content: Encrypted content (optional)
             encryption_used: Whether encryption was used
@@ -310,9 +351,9 @@ class DatabaseManager:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
-                    INSERT INTO messages (user_id, content, encrypted_content, encryption_used)
-                    VALUES (?, ?, ?, ?)
-                ''', (user_id, content, encrypted_content, encryption_used))
+                    INSERT INTO messages (sender_id, recipient_id, content, encrypted_content, encryption_used)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (sender_id, recipient_id, content, encrypted_content, encryption_used))
                 
                 message_id = cursor.lastrowid
                 conn.commit()
@@ -682,3 +723,296 @@ class DatabaseManager:
         except Exception as e:
             print(f"Error getting database stats: {e}")
             return {}
+    
+    def update_user_presence(self, user_id: int, is_online: bool = True) -> bool:
+        """
+        Update user online/offline status.
+        
+        Args:
+            user_id: User ID
+            is_online: Online status
+            
+        Returns:
+            True if successful
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    UPDATE users 
+                    SET is_online = ?, last_seen = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (is_online, user_id))
+                
+                conn.commit()
+                return True
+                
+        except Exception as e:
+            print(f"Error updating user presence: {e}")
+            return False
+    
+    def get_online_users(self) -> List[Dict]:
+        """
+        Get list of online users.
+        
+        Returns:
+            List of online user dictionaries
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT id, username, last_seen
+                    FROM users
+                    WHERE is_online = 1 AND is_active = 1
+                    ORDER BY last_seen DESC
+                ''')
+                
+                users = []
+                for row in cursor.fetchall():
+                    users.append({
+                        'id': row[0],
+                        'username': row[1],
+                        'last_seen': row[2]
+                    })
+                
+                return users
+                
+        except Exception as e:
+            print(f"Error getting online users: {e}")
+            return []
+    
+    def create_device(self, user_id: int, device_id: str, device_name: str = None,
+                     browser: str = None, os: str = None, ip_address: str = None) -> Optional[int]:
+        """
+        Create or update device record.
+        
+        Args:
+            user_id: User ID
+            device_id: Device identifier
+            device_name: Device name
+            browser: Browser name
+            os: Operating system
+            ip_address: IP address
+            
+        Returns:
+            Device ID if successful, None otherwise
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Check if device exists
+                cursor.execute('''
+                    SELECT id FROM devices 
+                    WHERE user_id = ? AND device_id = ?
+                ''', (user_id, device_id))
+                
+                existing = cursor.fetchone()
+                
+                if existing:
+                    # Update existing device
+                    cursor.execute('''
+                        UPDATE devices 
+                        SET last_active = CURRENT_TIMESTAMP, is_active = 1
+                        WHERE id = ?
+                    ''', (existing[0],))
+                    device_id = existing[0]
+                else:
+                    # Create new device
+                    cursor.execute('''
+                        INSERT INTO devices (user_id, device_id, device_name, browser, os, ip_address)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (user_id, device_id, device_name, browser, os, ip_address))
+                    device_id = cursor.lastrowid
+                
+                conn.commit()
+                return device_id
+                
+        except Exception as e:
+            print(f"Error creating device: {e}")
+            return None
+    
+    def deactivate_device(self, device_id: str) -> bool:
+        """
+        Deactivate a device.
+        
+        Args:
+            device_id: Device identifier
+            
+        Returns:
+            True if successful
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    UPDATE devices SET is_active = 0 WHERE device_id = ?
+                ''', (device_id,))
+                
+                conn.commit()
+                return True
+                
+        except Exception as e:
+            print(f"Error deactivating device: {e}")
+            return False
+    
+    def update_message_status(self, message_id: int, status: str) -> bool:
+        """
+        Update message delivery/read status.
+        
+        Args:
+            message_id: Message ID
+            status: New status (delivered, read)
+            
+        Returns:
+            True if successful
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                if status == 'delivered':
+                    cursor.execute('''
+                        UPDATE messages 
+                        SET status = 'delivered', delivered_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    ''', (message_id,))
+                elif status == 'read':
+                    cursor.execute('''
+                        UPDATE messages 
+                        SET status = 'read', read_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    ''', (message_id,))
+                
+                conn.commit()
+                return True
+                
+        except Exception as e:
+            print(f"Error updating message status: {e}")
+            return False
+    
+    def get_messages_between_users(self, user1_id: int, user2_id: int, limit: int = 50) -> List[Dict]:
+        """
+        Get messages between two users.
+        
+        Args:
+            user1_id: First user ID
+            user2_id: Second user ID
+            limit: Maximum number of messages
+            
+        Returns:
+            List of message dictionaries
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT m.id, m.sender_id, m.recipient_id, u.username, m.content, 
+                           m.encryption_used, m.status, m.delivered_at, m.read_at, m.created_at
+                    FROM messages m
+                    JOIN users u ON m.sender_id = u.id
+                    WHERE (m.sender_id = ? AND m.recipient_id = ?) 
+                       OR (m.sender_id = ? AND m.recipient_id = ?)
+                    ORDER BY m.created_at DESC
+                    LIMIT ?
+                ''', (user1_id, user2_id, user2_id, user1_id, limit))
+                
+                messages = []
+                for row in cursor.fetchall():
+                    messages.append({
+                        'id': row[0],
+                        'sender_id': row[1],
+                        'recipient_id': row[2],
+                        'username': row[3],
+                        'content': row[4],
+                        'encryption_used': bool(row[5]),
+                        'status': row[6],
+                        'delivered_at': row[7],
+                        'read_at': row[8],
+                        'created_at': row[9]
+                    })
+                
+                return messages
+                
+        except Exception as e:
+            print(f"Error getting messages between users: {e}")
+            return []
+    
+    def create_file_share(self, sender_id: int, recipient_id: int, file_name: str,
+                         file_type: str, file_size: int, encrypted_content: bytes,
+                         encryption_used: bool = False) -> Optional[int]:
+        """
+        Create a file share record.
+        
+        Args:
+            sender_id: Sender user ID
+            recipient_id: Recipient user ID
+            file_name: Name of the file
+            file_type: MIME type of the file
+            file_size: Size of the file in bytes
+            encrypted_content: Encrypted file content
+            encryption_used: Whether encryption was used
+            
+        Returns:
+            File share ID if successful, None otherwise
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO file_shares (sender_id, recipient_id, file_name, file_type, 
+                                           file_size, encrypted_content, encryption_used)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (sender_id, recipient_id, file_name, file_type, file_size, 
+                      encrypted_content, encryption_used))
+                
+                file_share_id = cursor.lastrowid
+                conn.commit()
+                
+                return file_share_id
+                
+        except Exception as e:
+            print(f"Error creating file share: {e}")
+            return None
+    
+    def get_file_share(self, file_id: int) -> Optional[Dict]:
+        """
+        Get a file share record.
+        
+        Args:
+            file_id: File share ID
+            
+        Returns:
+            File share dictionary if found, None otherwise
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT id, sender_id, recipient_id, file_name, file_type, 
+                           file_size, encrypted_content, encryption_used, created_at
+                    FROM file_shares
+                    WHERE id = ?
+                ''', (file_id,))
+                
+                file_share = cursor.fetchone()
+                
+                if file_share:
+                    return {
+                        'id': file_share[0],
+                        'sender_id': file_share[1],
+                        'recipient_id': file_share[2],
+                        'file_name': file_share[3],
+                        'file_type': file_share[4],
+                        'file_size': file_share[5],
+                        'encrypted_content': file_share[6],
+                        'encryption_used': bool(file_share[7]),
+                        'created_at': file_share[8]
+                    }
+                
+                return None
+                
+        except Exception as e:
+            print(f"Error getting file share: {e}")
+            return None

@@ -173,10 +173,13 @@
             </div>
             <div class="card-body">
                 <div class="d-grid gap-2">
-                    <button class="btn btn-primary" onclick="generateQuantumKey()">
+                    <a href="{{ url_for('bb84_demo') }}" class="btn btn-primary">
+                        <i class="fas fa-atom me-2"></i>BB84 Demo
+                    </a>
+                    <button class="btn btn-warning" onclick="generateQuantumKey()">
                         <i class="fas fa-key me-2"></i>Generate Quantum Key
                     </button>
-                    <button class="btn btn-warning" onclick="simulateEavesdropping()">
+                    <button class="btn btn-danger" onclick="simulateEavesdropping()">
                         <i class="fas fa-eye me-2"></i>Simulate Eavesdropping
                     </button>
                     <button class="btn btn-info" onclick="testMLModel()">
