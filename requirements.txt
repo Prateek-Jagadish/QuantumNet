@@ -7,6 +7,10 @@ Werkzeug>=2.3.7
 # Database
 SQLAlchemy>=2.0.21
 Flask-SQLAlchemy>=3.0.5
+psycopg2-binary>=2.9.9
+redis>=5.0.1
+eventlet>=0.36.1
+Pillow>=10.3.0
 
 # Cryptography
 pycryptodome>=3.19.0

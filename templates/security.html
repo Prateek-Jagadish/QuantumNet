@@ -402,10 +402,32 @@ function showAlert(message, type) {
     }, 5000);
 }
 
-// Auto-refresh security data every 30 seconds
-setInterval(() => {
-    // This would refresh security data in the background
-    console.log('Auto-refreshing security data...');
-}, 30000);
+// Live metrics via API
+function updateMetrics() {
+    fetch('/api/security/metrics')
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) return;
+            const ks = data.key_stats || {};
+            const qber = data.qber != null ? Math.round(data.qber * 1000) / 10 + '%' : 'N/A';
+            let banner = document.getElementById('live-metrics');
+            if (!banner) {
+                banner = document.createElement('div');
+                banner.id = 'live-metrics';
+                banner.className = 'alert alert-info mt-3';
+                banner.innerHTML = '<strong>Live:</strong> Keys total <span id="lm-total">0</span>, valid <span id="lm-valid">0</span>, expired <span id="lm-expired">0</span>, QBER <span id="lm-qber">0%</span>';
+                const container = document.querySelector('.container');
+                if (container) container.insertBefore(banner, container.firstChild.nextSibling);
+            }
+            document.getElementById('lm-total').textContent = ks.total_keys || 0;
+            document.getElementById('lm-valid').textContent = ks.valid_keys || 0;
+            document.getElementById('lm-expired').textContent = ks.expired_keys || 0;
+            document.getElementById('lm-qber').textContent = qber;
+        })
+        .catch(() => {});
+}
+
+setInterval(updateMetrics, 10000);
+updateMetrics();
 </script>
 {% endblock %}

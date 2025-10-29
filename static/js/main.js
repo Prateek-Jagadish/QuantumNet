@@ -1,3 +1,32 @@
+(function() {
+    // Dark mode toggle
+    const body = document.body;
+    const toggle = document.getElementById('dark-mode-toggle');
+    const stored = localStorage.getItem('qn_dark');
+    if (stored === '1') body.classList.add('dark');
+    if (toggle) {
+        toggle.addEventListener('click', function() {
+            body.classList.toggle('dark');
+            localStorage.setItem('qn_dark', body.classList.contains('dark') ? '1' : '0');
+        });
+    }
+
+    // Browser notifications helper
+    window.qnNotifications = {
+        ensurePermission: function() {
+            if (!('Notification' in window)) return;
+            if (Notification.permission === 'default') {
+                Notification.requestPermission();
+            }
+        },
+        notify: function(title, options) {
+            try {
+                if (!('Notification' in window)) return;
+                if (Notification.permission === 'granted') new Notification(title, options || {});
+            } catch (e) {}
+        }
+    };
+})();
 /* QuantumNet JavaScript Main File */
 
 // Global variables
