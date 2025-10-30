@@ -49,6 +49,9 @@ class DatabaseManager:
                         username TEXT UNIQUE NOT NULL,
                         email TEXT UNIQUE NOT NULL,
                         password_hash TEXT NOT NULL,
+                        bio TEXT,
+                        phone TEXT,
+                        profile_photo_path TEXT,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         last_login TIMESTAMP,
                         last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -69,6 +72,10 @@ class DatabaseManager:
                         status TEXT DEFAULT 'pending',
                         delivered_at TIMESTAMP,
                         read_at TIMESTAMP,
+                        reply_to INTEGER,
+                        is_deleted_sender BOOLEAN DEFAULT 0,
+                        is_deleted_recipient BOOLEAN DEFAULT 0,
+                        reactions TEXT,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY (sender_id) REFERENCES users (id),
                         FOREIGN KEY (recipient_id) REFERENCES users (id)
@@ -132,17 +139,104 @@ class DatabaseManager:
                         file_size INTEGER NOT NULL,
                         encrypted_content BLOB NOT NULL,
                         encryption_used BOOLEAN DEFAULT 0,
+                        thumbnail_path TEXT,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY (sender_id) REFERENCES users (id),
                         FOREIGN KEY (recipient_id) REFERENCES users (id)
                     )
                 ''')
+
+                # Contacts table
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS contacts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        contact_id INTEGER NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'normal',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(user_id, contact_id),
+                        FOREIGN KEY (user_id) REFERENCES users (id),
+                        FOREIGN KEY (contact_id) REFERENCES users (id)
+                    )
+                ''')
                 
                 conn.commit()
                 print("Database initialized successfully")
+                # Apply lightweight migrations to add missing columns in existing DBs
+                self._apply_sqlite_migrations(conn)
                 
         except Exception as e:
             print(f"Database initialization failed: {e}")
+
+    def _apply_sqlite_migrations(self, conn: sqlite3.Connection):
+        """Ensure required columns exist on legacy installations."""
+        try:
+            cursor = conn.cursor()
+            # Users table: ensure last_seen, is_online columns
+            cursor.execute("PRAGMA table_info(users)")
+            user_cols = {row[1] for row in cursor.fetchall()}
+            if 'bio' not in user_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN bio TEXT")
+            if 'phone' not in user_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN phone TEXT")
+            if 'profile_photo_path' not in user_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN profile_photo_path TEXT")
+            if 'last_seen' not in user_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN last_seen TIMESTAMP")
+                cursor.execute("UPDATE users SET last_seen = CURRENT_TIMESTAMP WHERE last_seen IS NULL")
+            if 'is_online' not in user_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN is_online BOOLEAN")
+                cursor.execute("UPDATE users SET is_online = 0 WHERE is_online IS NULL")
+            if 'bio' not in user_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN bio TEXT")
+            if 'phone' not in user_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN phone TEXT")
+            if 'profile_photo_path' not in user_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN profile_photo_path TEXT")
+
+            # Messages table: ensure modern columns
+            cursor.execute("PRAGMA table_info(messages)")
+            msg_cols = {row[1] for row in cursor.fetchall()}
+            def add_col(name, ddl):
+                if name not in msg_cols:
+                    cursor.execute(f"ALTER TABLE messages ADD COLUMN {ddl}")
+            add_col('sender_id', 'sender_id INTEGER NOT NULL DEFAULT 0')
+            add_col('recipient_id', 'recipient_id INTEGER NOT NULL DEFAULT 0')
+            add_col('encrypted_content', 'encrypted_content TEXT')
+            add_col('encryption_used', "encryption_used BOOLEAN DEFAULT 0")
+            add_col('status', "status TEXT")
+            add_col('delivered_at', 'delivered_at TIMESTAMP')
+            add_col('read_at', 'read_at TIMESTAMP')
+            add_col('reply_to', 'reply_to INTEGER')
+            add_col('is_deleted_sender', 'is_deleted_sender BOOLEAN DEFAULT 0')
+            add_col('is_deleted_recipient', 'is_deleted_recipient BOOLEAN DEFAULT 0')
+            add_col('reactions', 'reactions TEXT')
+            add_col('created_at', 'created_at TIMESTAMP')
+
+            # Backfill reasonable defaults where NULL
+            cursor.execute("UPDATE messages SET status = 'pending' WHERE status IS NULL")
+            cursor.execute("UPDATE messages SET is_deleted_sender = 0 WHERE is_deleted_sender IS NULL")
+            cursor.execute("UPDATE messages SET is_deleted_recipient = 0 WHERE is_deleted_recipient IS NULL")
+            cursor.execute("UPDATE messages SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP)")
+
+            # Contacts table: ensure exists
+            cursor.execute("PRAGMA table_info(contacts)")
+            # If table_info returns empty and table doesn't exist, create (safety)
+            if cursor.fetchall() == []:
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS contacts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        contact_id INTEGER NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'normal',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(user_id, contact_id)
+                    )
+                ''')
+
+            conn.commit()
+        except Exception as e:
+            print(f"SQLite migration check failed: {e}")
     
     def create_user(self, username: str, email: str, password: str) -> Optional[int]:
         """
@@ -222,6 +316,35 @@ class DatabaseManager:
         except Exception as e:
             print(f"Error authenticating user: {e}")
             return None
+
+    def search_users(self, query: str, limit: int = 10) -> List[Dict]:
+        """
+        Search users by username or email (case-insensitive).
+        """
+        try:
+            like = f"%{query.lower()}%"
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT id, username, email, last_seen, is_online
+                    FROM users
+                    WHERE is_active = 1 AND (lower(username) LIKE ? OR lower(email) LIKE ?)
+                    ORDER BY username ASC
+                    LIMIT ?
+                ''', (like, like, limit))
+                results = []
+                for row in cursor.fetchall():
+                    results.append({
+                        'id': row[0],
+                        'username': row[1],
+                        'email': row[2],
+                        'last_seen': row[3],
+                        'is_online': bool(row[4])
+                    })
+                return results
+        except Exception as e:
+            print(f"Error searching users: {e}")
+            return []
     
     def get_user_by_id(self, user_id: int) -> Optional[Dict]:
         """
@@ -333,7 +456,8 @@ class DatabaseManager:
     
     def create_message(self, sender_id: int, recipient_id: int, content: str, 
                       encrypted_content: Optional[str] = None,
-                      encryption_used: bool = False) -> Optional[int]:
+                      encryption_used: bool = False,
+                      reply_to: Optional[int] = None) -> Optional[int]:
         """
         Create a new message.
         
@@ -351,9 +475,9 @@ class DatabaseManager:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
-                    INSERT INTO messages (sender_id, recipient_id, content, encrypted_content, encryption_used)
-                    VALUES (?, ?, ?, ?, ?)
-                ''', (sender_id, recipient_id, content, encrypted_content, encryption_used))
+                    INSERT INTO messages (sender_id, recipient_id, content, encrypted_content, encryption_used, reply_to)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (sender_id, recipient_id, content, encrypted_content, encryption_used, reply_to))
                 
                 message_id = cursor.lastrowid
                 conn.commit()
@@ -378,9 +502,9 @@ class DatabaseManager:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
-                    SELECT m.id, m.user_id, u.username, m.content, m.encryption_used, m.created_at
+                    SELECT m.id, m.sender_id, u.username, m.content, m.encryption_used, m.created_at
                     FROM messages m
-                    JOIN users u ON m.user_id = u.id
+                    JOIN users u ON m.sender_id = u.id
                     ORDER BY m.created_at DESC
                     LIMIT ?
                 ''', (limit,))
@@ -416,8 +540,8 @@ class DatabaseManager:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
-                    SELECT COUNT(*) FROM messages WHERE user_id = ?
-                ''', (user_id,))
+                    SELECT COUNT(*) FROM messages WHERE sender_id = ? OR recipient_id = ?
+                ''', (user_id, user_id))
                 
                 count = cursor.fetchone()[0]
                 return count
@@ -938,10 +1062,169 @@ class DatabaseManager:
         except Exception as e:
             print(f"Error getting messages between users: {e}")
             return []
+
+    def add_contact(self, user_id: int, contact_id: int, status: str = 'normal') -> bool:
+        """Add or update a contact with status normal/favorite/blocked."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO contacts (user_id, contact_id, status)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(user_id, contact_id) DO UPDATE SET status=excluded.status
+                ''', (user_id, contact_id, status))
+                conn.commit()
+                return True
+        except Exception as e:
+            print(f"Error adding contact: {e}")
+            return False
+
+    def remove_contact(self, user_id: int, contact_id: int) -> bool:
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM contacts WHERE user_id = ? AND contact_id = ?', (user_id, contact_id))
+                conn.commit()
+                return True
+        except Exception as e:
+            print(f"Error removing contact: {e}")
+            return False
+
+    def list_contacts(self, user_id: int) -> List[Dict]:
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT c.contact_id, u.username, u.email, c.status, u.is_online, u.last_seen,
+                           COALESCE(uc.unread_count, 0) as unread_count
+                    FROM contacts c
+                    JOIN users u ON c.contact_id = u.id
+                    LEFT JOIN (
+                        SELECT sender_id, COUNT(*) as unread_count
+                        FROM messages
+                        WHERE recipient_id = ? AND (status IS NULL OR status <> 'read')
+                        GROUP BY sender_id
+                    ) uc ON uc.sender_id = c.contact_id
+                    WHERE c.user_id = ?
+                    ORDER BY (c.status = 'favorite') DESC, u.username ASC
+                ''', (user_id, user_id))
+                rows = cursor.fetchall()
+                return [{
+                    'id': r[0], 'username': r[1], 'email': r[2], 'status': r[3], 'is_online': bool(r[4]), 'last_seen': r[5], 'unread_count': r[6]
+                } for r in rows]
+        except Exception as e:
+            print(f"Error listing contacts: {e}")
+            return []
+
+    def set_contact_status(self, user_id: int, contact_id: int, status: str) -> bool:
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('UPDATE contacts SET status = ? WHERE user_id = ? AND contact_id = ?', (status, user_id, contact_id))
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            print(f"Error setting contact status: {e}")
+            return False
+
+    def update_user_profile(self, user_id: int, bio: Optional[str], phone: Optional[str]) -> bool:
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('UPDATE users SET bio = ?, phone = ? WHERE id = ?', (bio, phone, user_id))
+                conn.commit()
+                return True
+        except Exception as e:
+            print(f"Error updating profile: {e}")
+            return False
+
+    def update_profile_photo_path(self, user_id: int, path: str) -> bool:
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('UPDATE users SET profile_photo_path = ? WHERE id = ?', (path, user_id))
+                conn.commit()
+                return True
+        except Exception as e:
+            print(f"Error updating profile photo: {e}")
+            return False
+
+    def search_messages(self, user_id: int, query: str, limit: int = 50) -> List[Dict]:
+        try:
+            like = f"%{query}%"
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT m.id, m.sender_id, m.recipient_id, m.content, m.created_at
+                    FROM messages m
+                    WHERE (m.sender_id = ? OR m.recipient_id = ?) AND m.content LIKE ?
+                    ORDER BY m.created_at DESC
+                    LIMIT ?
+                ''', (user_id, user_id, like, limit))
+                rows = cursor.fetchall()
+                return [{
+                    'id': r[0], 'sender_id': r[1], 'recipient_id': r[2], 'content': r[3], 'created_at': r[4]
+                } for r in rows]
+        except Exception as e:
+            print(f"Error searching messages: {e}")
+            return []
+
+    def react_to_message(self, message_id: int, emoji: str) -> bool:
+        """Append a reaction emoji to message.reactions (JSON array in text)."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT reactions FROM messages WHERE id = ?', (message_id,))
+                row = cursor.fetchone()
+                reactions = []
+                if row and row[0]:
+                    try:
+                        reactions = json.loads(row[0])
+                    except Exception:
+                        reactions = []
+                reactions.append(emoji)
+                cursor.execute('UPDATE messages SET reactions = ? WHERE id = ?', (json.dumps(reactions), message_id))
+                conn.commit()
+                return True
+        except Exception as e:
+            print(f"Error reacting to message: {e}")
+            return False
+
+    def mark_message_deleted(self, message_id: int, for_user_id: int) -> bool:
+        """Delete for me: set flag based on whether user is sender or recipient."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT sender_id, recipient_id FROM messages WHERE id = ?', (message_id,))
+                row = cursor.fetchone()
+                if not row:
+                    return False
+                if row[0] == for_user_id:
+                    cursor.execute('UPDATE messages SET is_deleted_sender = 1 WHERE id = ?', (message_id,))
+                elif row[1] == for_user_id:
+                    cursor.execute('UPDATE messages SET is_deleted_recipient = 1 WHERE id = ?', (message_id,))
+                else:
+                    return False
+                conn.commit()
+                return True
+        except Exception as e:
+            print(f"Error deleting message: {e}")
+            return False
+
+    def delete_message_for_everyone(self, message_id: int) -> bool:
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('UPDATE messages SET content = "", encrypted_content = NULL, status = "deleted" WHERE id = ?', (message_id,))
+                conn.commit()
+                return True
+        except Exception as e:
+            print(f"Error deleting message for everyone: {e}")
+            return False
     
     def create_file_share(self, sender_id: int, recipient_id: int, file_name: str,
                          file_type: str, file_size: int, encrypted_content: bytes,
-                         encryption_used: bool = False) -> Optional[int]:
+                         encryption_used: bool = False, thumbnail_path: Optional[str] = None) -> Optional[int]:
         """
         Create a file share record.
         
@@ -962,10 +1245,10 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 cursor.execute('''
                     INSERT INTO file_shares (sender_id, recipient_id, file_name, file_type, 
-                                           file_size, encrypted_content, encryption_used)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                                           file_size, encrypted_content, encryption_used, thumbnail_path)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (sender_id, recipient_id, file_name, file_type, file_size, 
-                      encrypted_content, encryption_used))
+                      encrypted_content, encryption_used, thumbnail_path))
                 
                 file_share_id = cursor.lastrowid
                 conn.commit()

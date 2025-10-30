@@ -17,6 +17,10 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 from config import get_config
 from src.server.database import DatabaseManager
+try:
+    from src.server.database_pg import PostgresDatabaseManager
+except Exception:
+    PostgresDatabaseManager = None
 from src.ml.model_manager import ModelManager
 from src.crypto.quantum_key_generator import QuantumKeyGenerator
 from src.crypto.aes_encryption import AESEncryption
@@ -28,8 +32,26 @@ app = Flask(__name__)
 config_class = get_config()
 app.config.from_object(config_class)
 
-# Initialize SocketIO
-socketio = SocketIO(app, cors_allowed_origins="*")
+# Initialize SocketIO with Redis message queue for multi-instance sync
+from config import get_redis_url
+# Use Redis for cross-process pub/sub only if reachable; otherwise fall back to in-process
+redis_url = get_redis_url()
+message_queue_url = None
+if redis_url:
+    try:
+        import redis as _redis
+        _r = _redis.from_url(redis_url)
+        _r.ping()
+        message_queue_url = redis_url
+    except Exception:
+        message_queue_url = None
+
+socketio = SocketIO(
+    app,
+    cors_allowed_origins="*",
+    message_queue=message_queue_url,
+    async_mode=app.config.get('SOCKETIO_ASYNC_MODE', 'eventlet')
+)
 
 # Global variables
 active_sessions = {}
@@ -47,8 +69,14 @@ def login_required(f):
 
 # Initialize components
 with app.app_context():
-    # Initialize database
-    app.db_manager = DatabaseManager(app.config['DATABASE_PATH'])
+    # Initialize database: prefer PostgreSQL when DATABASE_URL is set
+    database_url = os.environ.get('DATABASE_URL')
+    if database_url and PostgresDatabaseManager is not None:
+        app.db_manager = PostgresDatabaseManager(database_url)
+        app.config['DB_BACKEND'] = 'postgres'
+    else:
+        app.db_manager = DatabaseManager(app.config['DATABASE_PATH'])
+        app.config['DB_BACKEND'] = 'sqlite'
     
     # Initialize ML model manager
     app.model_manager = ModelManager(
@@ -82,6 +110,100 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/profile', methods=['GET', 'POST'])
+@login_required
+def profile():
+    """User profile page: update bio/phone and show shared media."""
+    user_id = session['user_id']
+    if request.method == 'POST':
+        bio = request.form.get('bio')
+        phone = request.form.get('phone')
+        app.db_manager.update_user_profile(user_id, bio, phone)
+        flash('Profile updated', 'success')
+        return redirect(url_for('profile'))
+    user = app.db_manager.get_user_by_id(user_id)
+    # Render profile page
+    return render_template('profile.html', user=user)
+
+
+@app.route('/api/profile/photo', methods=['POST'])
+@login_required
+def upload_profile_photo():
+    """Upload and encrypt profile photo; store encrypted file and save path."""
+    if 'photo' not in request.files:
+        return jsonify({'success': False, 'error': 'No photo provided'})
+    file = request.files['photo']
+    if file.filename == '':
+        return jsonify({'success': False, 'error': 'No photo selected'})
+    try:
+        img_bytes = file.read()
+        # Compress/resize using Pillow
+        from io import BytesIO
+        from PIL import Image
+        img = Image.open(BytesIO(img_bytes)).convert('RGB')
+        img.thumbnail((1920, 1920))
+        buf = BytesIO()
+        img.save(buf, format='JPEG', quality=85)
+        compressed = buf.getvalue()
+        # Encrypt using quantum key if available
+        user_id = session['user_id']
+        key_bits = None
+        if user_id in user_keys:
+            key_id = user_keys[user_id]
+            key_bits = app.quantum_generator.get_key(key_id)
+        encrypted_content = compressed
+        if key_bits:
+            enc = app.aes_encryption.encrypt(compressed.decode('latin-1'), key_bits)
+            if enc['success']:
+                encrypted_content = enc['encrypted_data'].encode('latin-1')
+        # Store to disk
+        os.makedirs('static/uploads/profile', exist_ok=True)
+        storage_name = f"user_{user_id}_profile.enc"
+        storage_path = os.path.join('static/uploads/profile', storage_name)
+        with open(storage_path, 'wb') as f:
+            f.write(encrypted_content)
+        app.db_manager.update_profile_photo_path(user_id, storage_path)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/u/<int:user_id>/photo')
+@login_required
+def serve_profile_photo(user_id):
+    """Decrypt and serve a user's profile photo (if present)."""
+    try:
+        user = app.db_manager.get_user_by_id(user_id)
+        path = user.get('profile_photo_path') if user else None
+        if not path or not os.path.exists(path):
+            # Return an inline SVG placeholder to avoid 404s when default image is missing
+            placeholder_svg = (
+                "<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'>"
+                "<rect width='200' height='200' fill='#e9ecef'/><circle cx='100' cy='80' r='40' fill='#adb5bd'/>"
+                "<rect x='40' y='130' width='120' height='50' rx='25' fill='#adb5bd'/></svg>"
+            )
+            from flask import Response
+            return Response(placeholder_svg, mimetype='image/svg+xml')
+        with open(path, 'rb') as f:
+            data = f.read()
+        # Decrypt if possible using current viewer key; fallback raw
+        viewer_id = session['user_id']
+        if viewer_id in user_keys:
+            key_id = user_keys[viewer_id]
+            key_bits = app.quantum_generator.get_key(key_id)
+            if key_bits:
+                try:
+                    dec = app.aes_encryption.decrypt(data.decode('latin-1'), key_bits)
+                    if dec['success']:
+                        data = dec['decrypted_message'].encode('latin-1')
+                except Exception:
+                    pass
+        from flask import Response
+        return Response(data, mimetype='image/jpeg')
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     """User registration."""
@@ -100,7 +222,12 @@ def register():
             return render_template('register.html')
         
         # Create new user
-        user_id = app.db_manager.create_user(username, email, password)
+        if app.config.get('DB_BACKEND') == 'postgres':
+            import hashlib
+            pwd_hash = hashlib.sha256(password.encode()).hexdigest()
+            user_id = app.db_manager.create_user(username, email, pwd_hash)
+        else:
+            user_id = app.db_manager.create_user(username, email, password)
         if user_id:
             flash('Registration successful! Please log in.', 'success')
             return redirect(url_for('login'))
@@ -117,7 +244,12 @@ def login():
         username = request.form['username']
         password = request.form['password']
         
-        user = app.db_manager.authenticate_user(username, password)
+        if app.config.get('DB_BACKEND') == 'postgres':
+            import hashlib
+            pwd_hash = hashlib.sha256(password.encode()).hexdigest()
+            user = app.db_manager.authenticate_user(username, pwd_hash)
+        else:
+            user = app.db_manager.authenticate_user(username, password)
         if user:
             session['user_id'] = user['id']
             session['username'] = user['username']
@@ -203,6 +335,29 @@ def security():
     }
     
     return render_template('security.html', user=user, events=security_events, stats=security_stats)
+
+
+@app.route('/api/security/metrics')
+def security_metrics():
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'error': 'Not authenticated'})
+    try:
+        key_stats = app.quantum_generator.get_key_statistics()
+        db_stats = app.db_manager.get_database_stats() if hasattr(app.db_manager, 'get_database_stats') else {}
+        # Approximate current QBER from last protocol record if present
+        history = app.quantum_generator.get_protocol_history()
+        qber = None
+        if history:
+            last = history[-1]
+            qber = last.get('detection_probability', 0.0)
+        return jsonify({
+            'success': True,
+            'key_stats': key_stats,
+            'db_stats': db_stats,
+            'qber': qber
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 
 @app.route('/bb84-demo')
@@ -314,6 +469,52 @@ def get_online_users():
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+@app.route('/api/search/users')
+def search_users():
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'error': 'Not authenticated'})
+    q = request.args.get('q', '').strip()
+    if not q:
+        return jsonify({'success': True, 'users': []})
+    results = app.db_manager.search_users(q, limit=10)
+    return jsonify({'success': True, 'users': results})
+
+
+@app.route('/api/contacts', methods=['GET'])
+def list_contacts():
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'error': 'Not authenticated'})
+    contacts = app.db_manager.list_contacts(session['user_id'])
+    return jsonify({'success': True, 'contacts': contacts})
+
+
+@app.route('/api/contacts/add', methods=['POST'])
+def add_contact():
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'error': 'Not authenticated'})
+    contact_id = int(request.json.get('contact_id'))
+    ok = app.db_manager.add_contact(session['user_id'], contact_id, 'normal')
+    return jsonify({'success': ok})
+
+
+@app.route('/api/contacts/remove', methods=['POST'])
+def remove_contact():
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'error': 'Not authenticated'})
+    contact_id = int(request.json.get('contact_id'))
+    ok = app.db_manager.remove_contact(session['user_id'], contact_id)
+    return jsonify({'success': ok})
+
+
+@app.route('/api/contacts/status', methods=['POST'])
+def set_contact_status():
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'error': 'Not authenticated'})
+    contact_id = int(request.json.get('contact_id'))
+    status = request.json.get('status', 'normal')
+    ok = app.db_manager.set_contact_status(session['user_id'], contact_id, status)
+    return jsonify({'success': ok})
+
 
 
 @app.route('/api/user-sessions')
@@ -365,6 +566,16 @@ def get_messages():
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+@app.route('/api/messages/search')
+def search_messages():
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'error': 'Not authenticated'})
+    q = request.args.get('q', '').strip()
+    if not q:
+        return jsonify({'success': True, 'messages': []})
+    msgs = app.db_manager.search_messages(session['user_id'], q, limit=50)
+    return jsonify({'success': True, 'messages': msgs})
+
 
 
 @app.route('/upload', methods=['POST'])
@@ -389,8 +600,8 @@ def upload_file():
         file_content = file.read()
         file_size = len(file_content)
         
-        # Check file size (max 10MB)
-        if file_size > 10 * 1024 * 1024:
+        # Check file size (max 100MB)
+        if file_size > 100 * 1024 * 1024:
             return jsonify({'success': False, 'error': 'File too large (max 10MB)'})
         
         # Get quantum key for encryption
@@ -412,6 +623,27 @@ def upload_file():
                 user_keys[user_id] = result['key_id']
                 key_bits = app.quantum_generator.get_key(result['key_id'])
         
+        # If image, compress and generate thumbnail
+        thumbnail_path = None
+        try:
+            from PIL import Image
+            from io import BytesIO
+            if file.content_type.startswith('image/'):
+                image = Image.open(BytesIO(file_content)).convert('RGB')
+                image.thumbnail((1920, 1920))
+                out = BytesIO()
+                image.save(out, format='JPEG', quality=85)
+                file_content = out.getvalue()
+                # thumbnail 200x200
+                thumb = image.copy()
+                thumb.thumbnail((200, 200))
+                os.makedirs('static/uploads/thumbs', exist_ok=True)
+                thumb_name = f"thumb_{int(datetime.now().timestamp())}_{user_id}.jpg"
+                thumbnail_path = os.path.join('static/uploads/thumbs', thumb_name)
+                thumb.save(thumbnail_path, format='JPEG', quality=80)
+        except Exception:
+            pass
+
         # Encrypt file content
         encrypted_content = file_content
         encryption_used = False
@@ -434,7 +666,8 @@ def upload_file():
             file_type=file.content_type,
             file_size=file_size,
             encrypted_content=encrypted_content,
-            encryption_used=encryption_used
+            encryption_used=encryption_used,
+            thumbnail_path=thumbnail_path
         )
         
         if file_share_id:
@@ -446,6 +679,7 @@ def upload_file():
                 'file_type': file.content_type,
                 'sender_id': user_id,
                 'encryption_used': encryption_used,
+                'thumbnail_path': thumbnail_path,
                 'timestamp': datetime.now().isoformat()
             }, room=f"user_{recipient_id}" if recipient_id > 0 else 'general')
             
@@ -454,7 +688,8 @@ def upload_file():
                 'file_id': file_share_id,
                 'file_name': file.filename,
                 'file_size': file_size,
-                'encryption_used': encryption_used
+                'encryption_used': encryption_used,
+                'thumbnail_path': thumbnail_path
             })
         else:
             return jsonify({'success': False, 'error': 'Failed to save file'})
@@ -707,6 +942,7 @@ def handle_send_message(data):
     username = session['username']
     message_text = data.get('message', '')
     recipient_id = data.get('recipient_id', None)  # For direct messages
+    reply_to = data.get('reply_to')
     
     if not message_text:
         emit('error', {'message': 'No message provided'})
@@ -737,7 +973,8 @@ def handle_send_message(data):
             recipient_id=recipient_id,
             content=message_text,
             encrypted_content=encrypted_message,
-            encryption_used=encryption_used
+            encryption_used=encryption_used,
+            reply_to=reply_to
         )
         
         # Prepare message data
@@ -749,6 +986,7 @@ def handle_send_message(data):
             'content': message_text,
             'encrypted_content': encrypted_message,
             'encryption_used': encryption_used,
+            'reply_to': reply_to,
             'status': 'pending',
             'timestamp': datetime.now().isoformat()
         }
@@ -793,6 +1031,36 @@ def handle_send_message(data):
         
     except Exception as e:
         emit('error', {'message': f'Failed to send message: {str(e)}'})
+
+
+@socketio.on('react_to_message')
+def handle_react_to_message(data):
+    if 'user_id' not in session:
+        return
+    message_id = data.get('message_id')
+    emoji = data.get('emoji', '👍')
+    if not message_id:
+        return
+    if app.db_manager.react_to_message(message_id, emoji):
+        emit('message_reacted', {'message_id': message_id, 'emoji': emoji}, room='general')
+
+
+@socketio.on('delete_message_for_me')
+def handle_delete_for_me(data):
+    if 'user_id' not in session:
+        return
+    message_id = data.get('message_id')
+    if message_id and app.db_manager.mark_message_deleted(message_id, session['user_id']):
+        emit('message_deleted', {'message_id': message_id, 'scope': 'me'}, room=request.sid)
+
+
+@socketio.on('delete_message_for_everyone')
+def handle_delete_for_everyone(data):
+    if 'user_id' not in session:
+        return
+    message_id = data.get('message_id')
+    if message_id and app.db_manager.delete_message_for_everyone(message_id):
+        emit('message_deleted', {'message_id': message_id, 'scope': 'all'}, room='general')
 
 
 @socketio.on('mark_as_read')

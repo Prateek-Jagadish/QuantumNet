@@ -70,6 +70,26 @@ QuantumNet Enhanced is a **production-ready, WhatsApp/Messenger-like web applica
 ### DevOps & Deployment
 - **Docker** - Containerization
 - **Docker Compose** - Multi-service orchestration
+
+## 🛳️ Production Deployment
+
+1) Create an `.env` file (see variables used in `docker-compose.yml`):
+
+```
+SECRET_KEY=change-me
+POSTGRES_PASSWORD=supersecret
+REDIS_URL=redis://redis:6379/0
+DATABASE_URL=postgresql://quantumnet:${POSTGRES_PASSWORD}@db:5432/quantumnet
+SOCKETIO_ASYNC_MODE=eventlet
+```
+
+2) Build and start services:
+
+```bash
+docker compose up --build -d
+```
+
+Services: `web` (Flask + Gunicorn + Eventlet), `db` (PostgreSQL), `redis`, `nginx` (HTTP/HTTPS). Mount `./ssl` with certificates for HTTPS per `nginx.conf`.
 - **Nginx** - Reverse proxy and load balancing
 - **Let's Encrypt** - SSL certificates
 

@@ -1,3 +1,14 @@
+/* Dark mode */
+body.dark {
+    background-color: #121212;
+    color: #e6e6e6;
+}
+body.dark .navbar { background-color: #0b5ed7 !important; }
+body.dark .card { background-color: #1e1e1e; color: #e6e6e6; }
+body.dark .form-control, body.dark .btn, body.dark .alert {
+    background-color: #2a2a2a; color: #e6e6e6; border-color: #444;
+}
+body.dark .chat-messages { background-color: #1a1a1a; }
 /* QuantumNet Main CSS */
 
 :root {
