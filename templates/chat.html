@@ -1,0 +1,1471 @@
+{% extends "base.html" %}
+
+{% block title %}Secure Chat - QuantumNet{% endblock %}
+
+{% block extra_head %}
+<style>
+.chat-container {
+    height: 600px;
+    display: flex;
+    flex-direction: column;
+}
+
+.chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    background-color: #f8f9fa;
+}
+
+.message-item {
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    border-radius: 0.5rem;
+    background-color: white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.message-item.own-message {
+    background-color: #d9fdd3; /* WhatsApp light green */
+    margin-left: 2rem;
+}
+
+.message-item.other-message {
+    background-color: #f5f5f5;
+    margin-right: 2rem;
+}
+
+.message-header {
+    display: flex;
+    justify-content-between;
+    align-items-center;
+    margin-bottom: 0.5rem;
+}
+
+.message-username {
+    font-weight: bold;
+    color: #495057;
+}
+
+.message-time {
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+.message-content {
+    margin-bottom: 0.5rem;
+}
+
+.encryption-badge {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.4rem;
+}
+
+.chat-input {
+    margin-top: 1rem;
+}
+
+.online-users {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.user-status {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    margin-bottom: 0.5rem;
+}
+
+.user-status.online {
+    background-color: #d4edda;
+}
+
+.user-status.offline {
+    background-color: #f8d7da;
+}
+
+.user-status {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    margin-bottom: 0.5rem;
+    transition: all 0.3s ease;
+}
+
+.user-status.online {
+    background-color: #d4edda;
+    border-left: 3px solid #28a745;
+}
+
+.user-status.offline {
+    background-color: #f8d7da;
+    border-left: 3px solid #6c757d;
+}
+
+.user-status i {
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+.message-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 0.5rem;
+}
+
+.message-status {
+    font-size: 12px;
+    font-weight: bold;
+    color: #999;
+    transition: color 0.3s ease;
+}
+
+.message-status.delivered {
+    color: #007bff;
+}
+
+.message-status.read {
+    color: #28a745;
+}
+
+.message-status.pending {
+    color: #6c757d;
+}
+
+.typing-indicator {
+    color: #999;
+    font-style: italic;
+    padding: 8px;
+    display: none;
+    animation: fadeIn 0.3s ease-in;
+}
+
+.typing-indicator em::after {
+    content: '';
+    animation: dots 1.5s steps(4, end) infinite;
+}
+
+@keyframes dots {
+    0%, 20% { content: ''; }
+    40% { content: '.'; }
+    60% { content: '..'; }
+    80%, 100% { content: '...'; }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>
+                <i class="fas fa-comments text-primary me-2"></i>
+                Secure Chat
+            </h2>
+            <div class="d-flex align-items-center">
+                <span class="badge bg-success me-2" id="connection-status">
+                    <i class="fas fa-circle me-1"></i>Connecting...
+                </span>
+                <button class="btn btn-outline-primary btn-sm" onclick="generateQuantumKey()">
+                    <i class="fas fa-key me-1"></i>Generate Key
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Chat Messages -->
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-comments me-2"></i>
+                    Quantum-Secured Messages
+                </h5>
+                <div class="mt-2 d-flex gap-2">
+                    <div class="input-group input-group-sm" style="max-width: 320px;">
+                        <span class="input-group-text"><i class="fas fa-search"></i></span>
+                        <input type="text" id="message-search" class="form-control" placeholder="Search messages..."/>
+                        <button class="btn btn-outline-secondary" onclick="performMessageSearch()">Search</button>
+                    </div>
+                    <div>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="toggleEmojiPanel()"><i class="far fa-smile"></i></button>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="chat-container">
+                    <div id="emoji-panel" class="p-2" style="display:none;border-bottom:1px solid #eee;">
+                        <span class="me-2" style="cursor:pointer" onclick="insertEmoji('😀')">😀</span>
+                        <span class="me-2" style="cursor:pointer" onclick="insertEmoji('😂')">😂</span>
+                        <span class="me-2" style="cursor:pointer" onclick="insertEmoji('😍')">😍</span>
+                        <span class="me-2" style="cursor:pointer" onclick="insertEmoji('👍')">👍</span>
+                        <span class="me-2" style="cursor:pointer" onclick="insertEmoji('🙏')">🙏</span>
+                        <span class="me-2" style="cursor:pointer" onclick="insertEmoji('🎉')">🎉</span>
+                        <span class="me-2" style="cursor:pointer" onclick="insertEmoji('❤️')">❤️</span>
+                    </div>
+                    <div class="chat-messages" id="chat-messages">
+                        {% for message in messages %}
+                        <div class="message-item {% if message.user_id == session.user_id %}own-message{% else %}other-message{% endif %}">
+                            <div class="message-header">
+                                <span class="message-username">{{ message.username }}</span>
+                                <span class="message-time">{{ message.created_at }}</span>
+                            </div>
+                            <div class="message-content">{{ message.content }}</div>
+                            {% if message.encryption_used %}
+                            <span class="badge bg-success encryption-badge">
+                                <i class="fas fa-lock me-1"></i>Encrypted
+                            </span>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    
+                    <div class="chat-input p-3">
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="message-input" 
+                                   placeholder="Type your secure message..." maxlength="500">
+                            <div class="input-group-append">
+                                <button class="btn btn-outline-secondary" type="button" onclick="toggleFileUpload()" title="Upload File">
+                                    <i class="fas fa-paperclip"></i>
+                                </button>
+                                <button class="btn btn-outline-secondary" type="button" onclick="toggleVoiceRecording()" title="Voice Message">
+                                    <i class="fas fa-microphone"></i>
+                                </button>
+                                <button class="btn btn-primary" type="button" onclick="sendMessage()">
+                                    <i class="fas fa-paper-plane"></i>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- File Upload Section -->
+                        <div id="file-upload-section" class="mt-2" style="display: none;">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h6 class="card-title">Upload File</h6>
+                                    <input type="file" class="form-control" id="file-input" accept="*/*">
+                                    <div class="progress mt-2" style="height:6px;display:none;" id="upload-progress">
+                                        <div class="progress-bar" role="progressbar" style="width: 0%;"></div>
+                                    </div>
+                                    <div class="mt-2">
+                                        <button class="btn btn-success btn-sm" onclick="uploadFile()">
+                                            <i class="fas fa-upload me-1"></i>Upload
+                                        </button>
+                                        <button class="btn btn-secondary btn-sm" onclick="toggleFileUpload()">
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Voice Recording Section -->
+                        <div id="voice-recording-section" class="mt-2" style="display: none;">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h6 class="card-title">Voice Message</h6>
+                                    <div class="d-flex align-items-center">
+                                        <button class="btn btn-danger btn-sm me-2" id="record-btn" onclick="startRecording()">
+                                            <i class="fas fa-microphone"></i> Record
+                                        </button>
+                                        <button class="btn btn-success btn-sm me-2" id="stop-btn" onclick="stopRecording()" style="display: none;">
+                                            <i class="fas fa-stop"></i> Stop
+                                        </button>
+                                        <span id="recording-status" class="text-muted">Click Record to start</span>
+                                    </div>
+                                    <canvas id="waveform" height="40" style="width:100%;display:none;background:#f7f7f7;border-radius:4px" class="mt-2"></canvas>
+                                    <div class="small text-muted"><span id="recording-timer">00:00</span> / 00:60</div>
+                                    <div class="mt-2">
+                                        <button class="btn btn-primary btn-sm" id="send-voice-btn" onclick="sendVoiceMessage()" style="display: none;">
+                                            <i class="fas fa-paper-plane me-1"></i>Send Voice
+                                        </button>
+                                        <button class="btn btn-secondary btn-sm" onclick="toggleVoiceRecording()">
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-check mt-2">
+                            <input class="form-check-input" type="checkbox" id="use-encryption" checked>
+                            <label class="form-check-label" for="use-encryption">
+                                <i class="fas fa-lock me-1"></i>Use quantum encryption
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Contacts -->
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-address-book me-2"></i>
+                    Contacts
+                </h5>
+            </div>
+            <div class="card-body">
+                <input type="text" class="form-control mb-2" id="contact-search" placeholder="Search by name or email">
+                <div class="online-users" id="contacts-list"></div>
+            </div>
+        </div>
+        
+        <!-- Quantum Key Status -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-key me-2"></i>
+                    Quantum Key Status
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="key-status">
+                    <div class="text-center text-muted">
+                        <i class="fas fa-key fa-2x mb-2"></i>
+                        <p class="mb-0">No quantum key</p>
+                        <button class="btn btn-primary btn-sm mt-2" onclick="generateQuantumKey()">
+                            Generate Key
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Security Info -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-shield-alt me-2"></i>
+                    Security Info
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="security-info">
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>Protocol:</span>
+                        <span class="badge bg-primary">BB84</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>Encryption:</span>
+                        <span class="badge bg-success">AES-256</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>Key Length:</span>
+                        <span class="badge bg-info">1000 bits</span>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <span>Monitoring:</span>
+                        <span class="badge bg-warning">ML Active</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let socket;
+let currentUser = '{{ session.username }}';
+let currentUserId = {{ session.user_id }};
+let selectedRecipientId = 0; // 0 = general chat
+
+// Initialize Socket.IO connection
+document.addEventListener('DOMContentLoaded', function() {
+    socket = io();
+    if (window.qnNotifications) window.qnNotifications.ensurePermission();
+    
+    socket.on('connect', function() {
+        document.getElementById('connection-status').innerHTML = 
+            '<i class="fas fa-circle me-1"></i>Connected';
+        document.getElementById('connection-status').className = 'badge bg-success me-2';
+        
+        // Join chat
+        socket.emit('join_chat');
+    });
+    
+    socket.on('disconnect', function() {
+        document.getElementById('connection-status').innerHTML = 
+            '<i class="fas fa-circle me-1"></i>Disconnected';
+        document.getElementById('connection-status').className = 'badge bg-danger me-2';
+    });
+    
+    socket.on('message_received', function(data) {
+        addMessageToChat(data);
+        if (data.encryption_used && data.encrypted_content) {
+            fetch('/decrypt_message', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ encrypted_data: data.encrypted_content, iv: data.iv || '' })
+            }).then(r=>r.json()).then(d=>{
+                if (d.success && d.decrypted_message) {
+                    const el = document.querySelector(`[data-message-id="${data.id}"] .message-content`);
+                    if (el) el.textContent = d.decrypted_message;
+                }
+            }).catch(()=>{});
+        }
+        const isOwn = data.sender_id == currentUserId;
+        if (!isOwn && document.visibilityState !== 'visible' && window.qnNotifications) {
+            const preview = data.content || (data.encryption_used ? '[encrypted]' : '');
+            window.qnNotifications.notify('New message from ' + data.username, { body: preview });
+        }
+    });
+    
+    socket.on('user_status_changed', function(data) {
+        updateUserStatus(data);
+    });
+    
+    socket.on('user_connected', function(data) {
+        updateOnlineUsers();
+    });
+    
+    socket.on('user_disconnected', function(data) {
+        updateOnlineUsers();
+    });
+    
+    socket.on('message_delivered', function(data) {
+        updateMessageStatus(data.message_id, 'delivered', data.delivered_at);
+    });
+    
+    socket.on('message_read', function(data) {
+        updateMessageStatus(data.message_id, 'read', data.read_at);
+    });
+    
+    socket.on('user_typing', function(data) {
+        showTypingIndicator(data.username);
+    });
+    
+    socket.on('user_stopped_typing', function(data) {
+        hideTypingIndicator();
+    });
+    
+    socket.on('error', function(data) {
+        showAlert('Error: ' + data.message, 'danger');
+    });
+    
+    // Load contacts and wire search
+    fetchContacts();
+    document.getElementById('contact-search').addEventListener('input', handleContactSearch);
+    
+    // Initialize typing detection
+    initializeTypingDetection();
+    
+    // Initialize cross-device sync monitoring
+    initializeCrossDeviceSync();
+    
+    // Initialize message history pagination
+    initializeMessageHistory();
+});
+
+function sendMessage() {
+    const messageInput = document.getElementById('message-input');
+    const message = messageInput.value.trim();
+    const useEncryption = document.getElementById('use-encryption').checked;
+    
+    if (!message) return;
+    
+    if (useEncryption) {
+        // Encrypt message before sending
+        fetch('/encrypt_message', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                message: message
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                socket.emit('send_message', {
+                    message: message,
+                    encrypted: true,
+                    recipient_id: selectedRecipientId
+                });
+                messageInput.value = '';
+            } else {
+                showAlert('Encryption failed: ' + data.error, 'warning');
+                // Send unencrypted message as fallback
+                socket.emit('send_message', {
+                    message: message,
+                    encrypted: false
+                });
+                messageInput.value = '';
+            }
+        })
+        .catch(error => {
+            showAlert('Encryption error: ' + error.message, 'danger');
+        });
+    } else {
+        socket.emit('send_message', {
+            message: message,
+            encrypted: false,
+            recipient_id: selectedRecipientId
+        });
+        messageInput.value = '';
+    }
+}
+
+function addMessageToChat(data) {
+    const chatMessages = document.getElementById('chat-messages');
+    const messageDiv = document.createElement('div');
+    
+    const isOwnMessage = data.sender_id == currentUserId;
+    messageDiv.className = `message-item ${isOwnMessage ? 'own-message' : 'other-message'}`;
+    messageDiv.setAttribute('data-message-id', data.id);
+    messageDiv.setAttribute('data-sender-id', data.sender_id);
+    if (data.encrypted_content) {
+        messageDiv.setAttribute('data-encrypted', data.encrypted_content);
+        messageDiv.setAttribute('data-plaintext', data.content);
+    }
+    
+    const encryptionBadge = data.encryption_used ? 
+        '<span class="badge bg-success encryption-badge"><i class="fas fa-lock me-1"></i>Encrypted</span>' : '';
+    
+    // Message status indicator for own messages
+    const statusIndicator = isOwnMessage ? 
+        '<span class="message-status" id="status-' + data.id + '">...</span>' : '';
+    
+    messageDiv.innerHTML = `
+        <div class="message-header">
+            <span class="message-username">${data.username}</span>
+            <span class="message-time">${formatWhatsAppTime(new Date(data.timestamp))}</span>
+        </div>
+        ${renderReplyPreview(data)}
+        <div class="message-content">${data.content || (data.encryption_used ? '[encrypted]' : '')}</div>
+        <div class="message-footer">
+            <div>
+                ${encryptionBadge}
+                <button class="btn btn-link btn-sm p-0 ms-2" onclick="replyTo(${data.id})" title="Reply"><i class="fas fa-reply"></i></button>
+                <button class="btn btn-link btn-sm p-0 ms-2" onclick="forwardMessage(${data.id})" title="Forward"><i class="fas fa-share"></i></button>
+                <button class="btn btn-link btn-sm p-0 ms-2" onclick="react('${"👍"}', ${data.id})" title="React">👍</button>
+                ${data.encrypted_content ? `<button class="btn btn-link btn-sm p-0 ms-2" onclick="showMessageEncryptionDetails(${data.id})" title="Encryption Details"><i class="fas fa-info-circle"></i></button>` : ''}
+            </div>
+            ${statusIndicator}
+        </div>
+    `;
+    
+    chatMessages.appendChild(messageDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    
+    // If this is a received message, mark it as read after a short delay
+    if (!isOwnMessage) {
+        setTimeout(() => {
+            markMessageAsRead(data.id);
+        }, 1000);
+    }
+}
+
+function showMessageEncryptionDetails(messageId) {
+    const el = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (!el) return;
+    const pt = el.getAttribute('data-plaintext') || '';
+    const ct = el.getAttribute('data-encrypted') || '';
+    let modal = document.getElementById('enc-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'enc-modal';
+        modal.style.position = 'fixed'; modal.style.left='0'; modal.style.top='0'; modal.style.right='0'; modal.style.bottom='0';
+        modal.style.background='rgba(0,0,0,0.6)'; modal.style.zIndex='1050';
+        modal.innerHTML = '<div style="max-width:700px;margin:5% auto;background:#fff;padding:1rem;border-radius:8px;">\
+            <h5><i class="fas fa-lock me-2"></i>Encryption Details</h5>\
+            <div><strong>Plaintext:</strong><pre id="enc-pt" style="white-space:pre-wrap"></pre></div>\
+            <div class="mt-2"><strong>Quantum key:</strong> <span class="text-muted">in-memory (length varies)</span></div>\
+            <div class="mt-2"><strong>Ciphertext:</strong><pre id="enc-ct" style="white-space:pre-wrap"></pre></div>\
+            <div class="text-end"><button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'enc-modal\').remove()">Close</button></div>\
+        </div>';
+        document.body.appendChild(modal);
+    }
+    modal.querySelector('#enc-pt').textContent = pt;
+    modal.querySelector('#enc-ct').textContent = ct;
+}
+
+function fetchContacts() {
+    fetch('/api/contacts')
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) renderContacts(data.contacts);
+        });
+}
+
+function renderContacts(contacts) {
+    const container = document.getElementById('contacts-list');
+    if (!contacts || contacts.length === 0) {
+        container.innerHTML = '<div class="text-center text-muted">No contacts</div>';
+        return;
+    }
+    container.innerHTML = contacts.map(c => `
+        <div class="user-status ${c.is_online ? 'online' : 'offline'} d-flex justify-content-between align-items-center" data-user-id="${c.id}" onclick="selectContact(${c.id})" style="cursor:pointer;">
+            <div class="d-flex align-items-center">
+                <img src="/u/${c.id}/photo" class="rounded-circle me-2" alt="avatar" style="width:32px;height:32px;object-fit:cover;" onerror="this.style.display='none'"/>
+                <div>
+                    <div><i class="fas fa-circle ${c.is_online ? 'text-success' : 'text-muted'} me-1"></i><span>${c.username}</span></div>
+                    <small class="text-muted d-block">${c.is_online ? 'Online now' : (c.last_seen ? 'Last seen ' + formatTimeAgo(c.last_seen) : '')}</small>
+                </div>
+            </div>
+            ${c.unread_count && c.unread_count > 0 ? `<span class="badge bg-danger">${c.unread_count}</span>` : ''}
+        </div>
+    `).join('');
+}
+
+function handleContactSearch(e) {
+    const q = e.target.value.trim();
+    if (!q) {
+        fetchContacts();
+        return;
+    }
+    fetch('/api/search/users?q=' + encodeURIComponent(q))
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                // Map into contact-like entries without unread
+                const mapped = data.users.map(u => ({ id: u.id, username: u.username, email: u.email, is_online: u.is_online, last_seen: u.last_seen, unread_count: 0 }));
+                renderContacts(mapped);
+            }
+        });
+}
+
+function selectContact(userId) {
+    selectedRecipientId = userId;
+    currentPage = 1;
+    hasMoreMessages = true;
+    const chatMessages = document.getElementById('chat-messages');
+    chatMessages.innerHTML = '';
+    // Load recent with recipient filter
+    fetch(`/api/messages?recipient_id=${userId}&limit=50`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                data.messages.reverse().forEach(addMessageToChat);
+            }
+        });
+}
+
+function renderReplyPreview(data) {
+    if (!data.reply_to) return '';
+    const rp = data.reply_preview;
+    if (rp) {
+        return `<div class="text-muted small">Replying to <strong>${rp.username||'user'}</strong>: ${(rp.excerpt||'').replace(/</g,'&lt;')}</div>`;
+    }
+    return `<div class="text-muted small">Replying to #${data.reply_to}</div>`;
+}
+
+function react(emoji, messageId) {
+    socket.emit('react_to_message', { message_id: messageId, emoji: emoji });
+}
+
+socket.on('message_reacted', function(data) {
+    const el = document.querySelector(`[data-message-id="${data.message_id}"] .message-footer`);
+    if (!el) return;
+    let span = el.querySelector('.reactions');
+    if (!span) {
+        span = document.createElement('span');
+        span.className = 'reactions ms-2';
+        el.insertBefore(span, el.firstChild);
+    }
+    span.textContent = (span.textContent || '') + ' ' + data.emoji;
+});
+
+function replyTo(messageId) {
+    const input = document.getElementById('message-input');
+    input.dataset.replyTo = messageId;
+    input.placeholder = 'Replying to #' + messageId + '...';
+    input.focus();
+}
+
+function forwardMessage(messageId) {
+    // Simple forward: fetch the message content from DOM and resend
+    const el = document.querySelector(`[data-message-id="${messageId}"] .message-content`);
+    if (!el) return;
+    const text = el.textContent;
+    socket.emit('send_message', { message: text, encrypted: false, recipient_id: selectedRecipientId });
+}
+
+function formatWhatsAppTime(date) {
+    const now = new Date();
+    const diff = now - date;
+    const oneDay = 24 * 60 * 60 * 1000;
+    if (diff < oneDay && date.getDate() === now.getDate()) {
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    if (diff < 2 * oneDay && date.getDate() === new Date(now - oneDay).getDate()) {
+        return 'Yesterday';
+    }
+    return `${String(date.getDate()).padStart(2,'0')}/${String(date.getMonth()+1).padStart(2,'0')}/${date.getFullYear()}`;
+}
+
+function updateMessageStatus(messageId, status, timestamp) {
+    const statusElement = document.getElementById('status-' + messageId);
+    if (!statusElement) return;
+    
+    let statusText = '';
+    let statusClass = '';
+    
+    switch(status) {
+        case 'delivered':
+            statusText = '✓';
+            statusClass = 'delivered';
+            break;
+        case 'read':
+            statusText = '✓✓';
+            statusClass = 'read';
+            break;
+        default:
+            statusText = '...';
+            statusClass = 'pending';
+    }
+    
+    statusElement.textContent = statusText;
+    statusElement.className = `message-status ${statusClass}`;
+}
+
+function markMessageAsRead(messageId) {
+    socket.emit('mark_as_read', {
+        message_id: messageId
+    });
+}
+
+// Typing indicator functionality
+let typingTimeout = null;
+let isTyping = false;
+
+function initializeTypingDetection() {
+    const messageInput = document.getElementById('message-input');
+    if (!messageInput) return;
+    
+    messageInput.addEventListener('input', function() {
+        if (!isTyping) {
+            isTyping = true;
+            socket.emit('typing_start', {
+                recipient_id: 0  // General chat
+            });
+        }
+        
+        // Clear existing timeout
+        clearTimeout(typingTimeout);
+        
+        // Set new timeout to stop typing indicator
+        typingTimeout = setTimeout(() => {
+            if (isTyping) {
+                isTyping = false;
+                socket.emit('typing_stop', {
+                    recipient_id: 0  // General chat
+                });
+            }
+        }, 2000); // Stop typing indicator after 2 seconds of inactivity
+    });
+    
+    // Stop typing when message is sent
+    messageInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            if (isTyping) {
+                isTyping = false;
+                socket.emit('typing_stop', {
+                    recipient_id: 0
+                });
+            }
+        }
+    });
+}
+
+function showTypingIndicator(username) {
+    let indicator = document.getElementById('typing-indicator');
+    if (!indicator) {
+        indicator = document.createElement('div');
+        indicator.id = 'typing-indicator';
+        indicator.className = 'typing-indicator';
+        document.getElementById('chat-messages').appendChild(indicator);
+    }
+    
+    indicator.innerHTML = `<em>${username} is typing...</em>`;
+    indicator.style.display = 'block';
+    
+    // Auto-hide after 5 seconds
+    setTimeout(() => {
+        hideTypingIndicator();
+    }, 5000);
+}
+
+function hideTypingIndicator() {
+    const indicator = document.getElementById('typing-indicator');
+    if (indicator) {
+        indicator.style.display = 'none';
+    }
+}
+
+// Cross-device synchronization
+function initializeCrossDeviceSync() {
+    // Check for active sessions every 30 seconds
+    setInterval(checkActiveSessions, 30000);
+    
+    // Initial check
+    checkActiveSessions();
+}
+
+function checkActiveSessions() {
+    fetch('/api/user-sessions')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updateSessionIndicator(data.session_count);
+            }
+        })
+        .catch(error => {
+            console.error('Error checking active sessions:', error);
+        });
+}
+
+function updateSessionIndicator(sessionCount) {
+    let indicator = document.getElementById('session-indicator');
+    if (!indicator) {
+        // Create session indicator if it doesn't exist
+        const statusContainer = document.querySelector('.d-flex.align-items-center');
+        if (statusContainer) {
+            indicator = document.createElement('span');
+            indicator.id = 'session-indicator';
+            indicator.className = 'badge bg-info me-2';
+            statusContainer.insertBefore(indicator, statusContainer.querySelector('#connection-status'));
+        }
+    }
+    
+    if (indicator) {
+        if (sessionCount > 1) {
+            indicator.innerHTML = `<i class="fas fa-mobile-alt me-1"></i>${sessionCount} devices`;
+            indicator.style.display = 'inline-block';
+        } else {
+            indicator.style.display = 'none';
+        }
+    }
+}
+
+// Message history pagination
+let currentPage = 1;
+let hasMoreMessages = true;
+let isLoadingMessages = false;
+
+function initializeMessageHistory() {
+    const chatMessages = document.getElementById('chat-messages');
+    if (!chatMessages) return;
+    
+    // Add scroll listener for infinite scroll
+    chatMessages.addEventListener('scroll', function() {
+        if (chatMessages.scrollTop === 0 && hasMoreMessages && !isLoadingMessages) {
+            loadEarlierMessages();
+        }
+    });
+    
+    // Add load more button
+    addLoadMoreButton();
+}
+
+function addLoadMoreButton() {
+    const chatMessages = document.getElementById('chat-messages');
+    if (!chatMessages) return;
+    
+    const loadMoreBtn = document.createElement('div');
+    loadMoreBtn.id = 'load-more-container';
+    loadMoreBtn.className = 'text-center p-3';
+    loadMoreBtn.innerHTML = `
+        <button class="btn btn-outline-primary btn-sm" id="load-more-btn" onclick="loadEarlierMessages()">
+            <i class="fas fa-arrow-up me-1"></i>Load Earlier Messages
+        </button>
+    `;
+    
+    chatMessages.insertBefore(loadMoreBtn, chatMessages.firstChild);
+}
+
+function loadEarlierMessages() {
+    if (isLoadingMessages || !hasMoreMessages) return;
+    
+    isLoadingMessages = true;
+    const loadBtn = document.getElementById('load-more-btn');
+    if (loadBtn) {
+        loadBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Loading...';
+        loadBtn.disabled = true;
+    }
+    
+    fetch(`/api/messages?page=${currentPage + 1}&limit=20`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                if (data.messages.length === 0) {
+                    hasMoreMessages = false;
+                    if (loadBtn) {
+                        loadBtn.style.display = 'none';
+                    }
+                } else {
+                    // Prepend messages to chat
+                    const chatMessages = document.getElementById('chat-messages');
+                    const scrollHeight = chatMessages.scrollHeight;
+                    
+                    data.messages.reverse().forEach(msg => {
+                        prependMessageToChat(msg);
+                    });
+                    
+                    // Restore scroll position
+                    const newScrollHeight = chatMessages.scrollHeight;
+                    chatMessages.scrollTop = newScrollHeight - scrollHeight;
+                    
+                    currentPage++;
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error loading earlier messages:', error);
+        })
+        .finally(() => {
+            isLoadingMessages = false;
+            if (loadBtn) {
+                loadBtn.innerHTML = '<i class="fas fa-arrow-up me-1"></i>Load Earlier Messages';
+                loadBtn.disabled = false;
+            }
+        });
+}
+
+function prependMessageToChat(data) {
+    const chatMessages = document.getElementById('chat-messages');
+    const messageDiv = document.createElement('div');
+    
+    const isOwnMessage = data.sender_id == currentUserId;
+    messageDiv.className = `message-item ${isOwnMessage ? 'own-message' : 'other-message'}`;
+    messageDiv.setAttribute('data-message-id', data.id);
+    messageDiv.setAttribute('data-sender-id', data.sender_id);
+    
+    const encryptionBadge = data.encryption_used ? 
+        '<span class="badge bg-success encryption-badge"><i class="fas fa-lock me-1"></i>Encrypted</span>' : '';
+    
+    // Message status indicator for own messages
+    const statusIndicator = isOwnMessage ? 
+        '<span class="message-status" id="status-' + data.id + '">...</span>' : '';
+    
+    messageDiv.innerHTML = `
+        <div class="message-header">
+            <span class="message-username">${data.username}</span>
+            <span class="message-time">${new Date(data.created_at).toLocaleTimeString()}</span>
+        </div>
+        <div class="message-content">${data.content}</div>
+        <div class="message-footer">
+            ${encryptionBadge}
+            ${statusIndicator}
+        </div>
+    `;
+    
+    chatMessages.insertBefore(messageDiv, chatMessages.firstChild);
+}
+
+// Online status updates impact contacts list styling
+
+function updateUserStatus(data) {
+    const userElement = document.querySelector(`[data-user-id="${data.user_id}"]`);
+    if (!userElement) return;
+    
+    const statusIcon = userElement.querySelector('i');
+    const statusText = userElement.querySelector('small');
+    
+    if (data.status === 'online') {
+        userElement.classList.remove('offline');
+        userElement.classList.add('online');
+        statusIcon.className = 'fas fa-circle text-success me-2';
+        statusText.textContent = 'Online now';
+    } else {
+        userElement.classList.remove('online');
+        userElement.classList.add('offline');
+        statusIcon.className = 'fas fa-circle text-muted me-2';
+        statusText.textContent = `Last seen ${formatTimeAgo(data.last_seen)}`;
+    }
+}
+
+function formatTimeAgo(timestamp) {
+    const now = new Date();
+    const date = new Date(timestamp);
+    const diffInSeconds = Math.floor((now - date) / 1000);
+    
+    if (diffInSeconds < 60) {
+        return 'Just now';
+    } else if (diffInSeconds < 3600) {
+        const minutes = Math.floor(diffInSeconds / 60);
+        return `${minutes} min ago`;
+    } else if (diffInSeconds < 86400) {
+        const hours = Math.floor(diffInSeconds / 3600);
+        return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+    } else {
+        const days = Math.floor(diffInSeconds / 86400);
+        return `${days} day${days > 1 ? 's' : ''} ago`;
+    }
+}
+
+function generateQuantumKey() {
+    const button = event.target;
+    const originalText = button.innerHTML;
+    
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Generating...';
+    button.disabled = true;
+    
+    fetch('/generate_key', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            session_id: 'chat_' + Date.now()
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('key-status').innerHTML = `
+                <div class="alert alert-success">
+                    <h6><i class="fas fa-check-circle me-2"></i>Key Generated!</h6>
+                    <p class="mb-1"><strong>Length:</strong> ${data.key_length} bits</p>
+                    <p class="mb-0"><strong>Expires:</strong> ${data.expiry_hours}h</p>
+                </div>
+            `;
+        } else {
+            document.getElementById('key-status').innerHTML = `
+                <div class="alert alert-danger">
+                    <h6><i class="fas fa-exclamation-triangle me-2"></i>Failed</h6>
+                    <p class="mb-0">${data.error}</p>
+                </div>
+            `;
+        }
+    })
+    .catch(error => {
+        document.getElementById('key-status').innerHTML = `
+            <div class="alert alert-danger">
+                <h6><i class="fas fa-exclamation-triangle me-2"></i>Error</h6>
+                <p class="mb-0">Failed to generate key</p>
+            </div>
+        `;
+    })
+    .finally(() => {
+        button.innerHTML = originalText;
+        button.disabled = false;
+    });
+}
+
+// Emoji picker
+function toggleEmojiPanel() {
+    const p = document.getElementById('emoji-panel');
+    p.style.display = p.style.display === 'none' ? 'block' : 'none';
+}
+function insertEmoji(e) {
+    const input = document.getElementById('message-input');
+    const start = input.selectionStart || input.value.length;
+    const end = input.selectionEnd || input.value.length;
+    input.value = input.value.substring(0, start) + e + input.value.substring(end);
+    input.focus();
+    input.selectionStart = input.selectionEnd = start + e.length;
+}
+
+// Message search
+function performMessageSearch() {
+    const q = document.getElementById('message-search').value.trim();
+    if (!q) return;
+    fetch('/api/messages/search?q=' + encodeURIComponent(q))
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) return;
+            // Render results as temporary list at top
+            const chat = document.getElementById('chat-messages');
+            let box = document.getElementById('search-results');
+            if (!box) {
+                box = document.createElement('div');
+                box.id = 'search-results';
+                box.className = 'p-2';
+                box.style.background = '#fff8e1';
+                box.style.borderBottom = '1px solid #eee';
+                chat.parentNode.insertBefore(box, chat);
+            }
+            if (data.messages.length === 0) {
+                box.innerHTML = '<div class="text-muted small">No results</div>';
+                return;
+            }
+            box.innerHTML = data.messages.slice(0, 10).map(m => `
+                <div class="small mb-1" style="cursor:pointer" onclick="jumpToMessage(${m.id})">
+                    <i class="fas fa-search me-1"></i>${(m.content||'').substring(0,80)}
+                    <span class="text-muted">(${new Date(m.created_at).toLocaleString()})</span>
+                </div>
+            `).join('');
+        });
+}
+function jumpToMessage(id) {
+    // naive: load more if necessary isn't implemented; highlight if present
+    const el = document.querySelector(`[data-message-id="${id}"]`);
+    if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.style.outline = '2px solid #ffc107';
+        setTimeout(()=>{ el.style.outline = 'none'; }, 1500);
+    }
+}
+
+function showAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    document.querySelector('.container').insertBefore(alertDiv, document.querySelector('.row'));
+    
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+        if (alertDiv.parentNode) {
+            alertDiv.remove();
+        }
+    }, 5000);
+}
+
+// Allow sending message with Enter key
+document.getElementById('message-input').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        sendMessage();
+    }
+});
+
+// File Upload Functions
+function toggleFileUpload() {
+    const section = document.getElementById('file-upload-section');
+    const voiceSection = document.getElementById('voice-recording-section');
+    
+    if (section.style.display === 'none') {
+        section.style.display = 'block';
+        voiceSection.style.display = 'none';
+    } else {
+        section.style.display = 'none';
+    }
+}
+
+function uploadFile() {
+    const fileInput = document.getElementById('file-input');
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        showAlert('Please select a file to upload', 'warning');
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('recipient_id', selectedRecipientId);
+
+    const progress = document.getElementById('upload-progress');
+    const bar = progress.querySelector('.progress-bar');
+    progress.style.display = 'block';
+    bar.style.width = '0%';
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/upload');
+    xhr.upload.onprogress = function(e) {
+        if (e.lengthComputable) {
+            const p = Math.round((e.loaded / e.total) * 100);
+            bar.style.width = p + '%';
+        }
+    };
+    xhr.onload = function() {
+        progress.style.display = 'none';
+        if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+                const data = JSON.parse(xhr.responseText);
+                if (data.success) {
+                    showAlert(`File "${data.file_name}" uploaded successfully!`, 'success');
+                    document.getElementById('file-input').value = '';
+                    toggleFileUpload();
+                } else {
+                    showAlert('Upload failed: ' + data.error, 'danger');
+                }
+            } catch {
+                showAlert('Upload response parse error', 'danger');
+            }
+        } else {
+            showAlert('Upload failed with status ' + xhr.status, 'danger');
+        }
+    };
+    xhr.onerror = function() {
+        progress.style.display = 'none';
+        showAlert('Network error during upload', 'danger');
+    };
+    xhr.send(formData);
+}
+
+// Voice Recording Functions
+let mediaRecorder = null;
+let audioChunks = [];
+let audioBlob = null;
+let mediaStream = null;
+let recordStartTime = 0;
+let recordTimerInterval = null;
+let analyser = null;
+let audioCtx = null;
+
+function toggleVoiceRecording() {
+    const section = document.getElementById('voice-recording-section');
+    const fileSection = document.getElementById('file-upload-section');
+    
+    if (section.style.display === 'none') {
+        section.style.display = 'block';
+        fileSection.style.display = 'none';
+    } else {
+        section.style.display = 'none';
+        stopRecording();
+    }
+}
+
+async function startRecording() {
+    try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(mediaStream);
+        audioChunks = [];
+        recordStartTime = Date.now();
+        startTimer();
+        startWaveform(mediaStream);
+        
+        mediaRecorder.ondataavailable = (event) => {
+            audioChunks.push(event.data);
+        };
+        
+        mediaRecorder.onstop = () => {
+            audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+            document.getElementById('send-voice-btn').style.display = 'inline-block';
+            document.getElementById('recording-status').textContent = 'Recording complete!';
+            stopTimer();
+            stopWaveform();
+        };
+        
+        mediaRecorder.start();
+        
+        document.getElementById('record-btn').style.display = 'none';
+        document.getElementById('stop-btn').style.display = 'inline-block';
+        document.getElementById('recording-status').textContent = 'Recording...';
+        // Auto-stop after 60s
+        setTimeout(() => { if (mediaRecorder && mediaRecorder.state === 'recording') stopRecording(); }, 60000);
+        
+    } catch (error) {
+        showAlert('Microphone access denied: ' + error.message, 'danger');
+    }
+}
+
+function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+        if (mediaStream) mediaStream.getTracks().forEach(track => track.stop());
+        
+        document.getElementById('record-btn').style.display = 'inline-block';
+        document.getElementById('stop-btn').style.display = 'none';
+    }
+}
+
+function startTimer() {
+    const el = document.getElementById('recording-timer');
+    if (!el) return;
+    recordTimerInterval = setInterval(() => {
+        const s = Math.floor((Date.now() - recordStartTime)/1000);
+        const mm = String(Math.floor(s/60)).padStart(2,'0');
+        const ss = String(s%60).padStart(2,'0');
+        el.textContent = `${mm}:${ss}`;
+    }, 250);
+}
+function stopTimer() { if (recordTimerInterval) { clearInterval(recordTimerInterval); recordTimerInterval = null; } }
+
+function startWaveform(stream) {
+    const canvas = document.getElementById('waveform');
+    if (!canvas) return;
+    canvas.style.display = 'block';
+    const ctx = canvas.getContext('2d');
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    src.connect(analyser);
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    function draw() {
+        if (!analyser) return;
+        requestAnimationFrame(draw);
+        analyser.getByteTimeDomainData(dataArray);
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        ctx.fillStyle = '#f7f7f7';
+        ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.lineWidth = 2; ctx.strokeStyle = '#0d6efd';
+        ctx.beginPath();
+        const slice = canvas.width / bufferLength;
+        let x = 0;
+        for (let i=0;i<bufferLength;i++) {
+            const v = dataArray[i] / 128.0;
+            const y = v * canvas.height/2;
+            if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+            x += slice;
+        }
+        ctx.lineTo(canvas.width, canvas.height/2);
+        ctx.stroke();
+    }
+    draw();
+}
+function stopWaveform() {
+    const canvas = document.getElementById('waveform');
+    if (canvas) { const ctx = canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height); canvas.style.display='none'; }
+    if (analyser) { try { analyser.disconnect(); } catch(e){} analyser = null; }
+    if (audioCtx) { try { audioCtx.close(); } catch(e){} audioCtx = null; }
+}
+
+function sendVoiceMessage() {
+    if (!audioBlob) {
+        showAlert('No audio recorded', 'warning');
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('audio', audioBlob);
+    formData.append('recipient_id', selectedRecipientId);
+    
+    fetch('/upload-audio', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showAlert('Voice message sent successfully!', 'success');
+            toggleVoiceRecording();
+        } else {
+            showAlert('Voice message failed: ' + data.error, 'danger');
+        }
+    })
+    .catch(error => {
+        showAlert('Voice message error: ' + error.message, 'danger');
+    });
+}
+
+// Handle file and voice message events
+socket.on('file_received', function(data) {
+    displayFileMessage(data);
+});
+
+socket.on('voice_message_received', function(data) {
+    displayVoiceMessage(data);
+});
+
+function displayFileMessage(data) {
+    const chatMessages = document.getElementById('chat-messages');
+    const fileMsg = document.createElement('div');
+    fileMsg.className = 'message-item other-message';
+    
+    const encryptionBadge = data.encryption_used ? 
+        '<span class="badge bg-success encryption-badge"><i class="fas fa-lock me-1"></i>Encrypted</span>' : '';
+    
+    const isImage = data.file_type && data.file_type.startsWith('image/');
+    const thumb = isImage && data.thumbnail_path ? `<img src="/${data.thumbnail_path}" alt="thumb" class="img-thumbnail" style="max-width:120px;cursor:pointer" onclick="openLightbox('/download/${data.file_id}')">` : '';
+    fileMsg.innerHTML = `
+        <div class="message-header">
+            <span class="message-username">File Shared</span>
+            <span class="message-time">${new Date(data.timestamp).toLocaleTimeString()}</span>
+        </div>
+        <div class="message-content">
+            <div class="file-message">
+                ${isImage ? '<i class="fas fa-image me-2"></i>' : '<i class="fas fa-file me-2"></i>'}
+                <strong>${data.file_name}</strong>
+                <small class="text-muted d-block">${(data.file_size / 1024 / 1024).toFixed(2)} MB</small>
+                ${thumb}
+            </div>
+        </div>
+        <div class="message-footer">
+            ${encryptionBadge}
+            <a href="/download/${data.file_id}" class="btn btn-sm btn-primary">
+                <i class="fas fa-download me-1"></i>Download
+            </a>
+        </div>
+    `;
+    
+    chatMessages.appendChild(fileMsg);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function displayVoiceMessage(data) {
+    const chatMessages = document.getElementById('chat-messages');
+    const voiceMsg = document.createElement('div');
+    voiceMsg.className = 'message-item other-message';
+    
+    const encryptionBadge = data.encryption_used ? 
+        '<span class="badge bg-success encryption-badge"><i class="fas fa-lock me-1"></i>Encrypted</span>' : '';
+    
+    voiceMsg.innerHTML = `
+        <div class="message-header">
+            <span class="message-username">Voice Message</span>
+            <span class="message-time">${new Date(data.timestamp).toLocaleTimeString()}</span>
+        </div>
+        <div class="message-content">
+            <div class="voice-message">
+                <i class="fas fa-microphone me-2"></i>
+                <strong>Voice Message</strong>
+                <small class="text-muted d-block">${(data.file_size / 1024).toFixed(1)} KB</small>
+                <audio controls preload="none" style="width:100%;" src="/download/${data.voice_id}"></audio>
+            </div>
+        </div>
+        <div class="message-footer">
+            ${encryptionBadge}
+            <a href="/download/${data.voice_id}" class="btn btn-sm btn-primary">
+                <i class="fas fa-play me-1"></i>Play
+            </a>
+        </div>
+    `;
+    
+    chatMessages.appendChild(voiceMsg);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+// Drag & drop support
+const dropTarget = document.getElementById('chat-messages');
+if (dropTarget) {
+    ['dragenter','dragover'].forEach(evt => dropTarget.addEventListener(evt, e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }, false));
+    dropTarget.addEventListener('drop', e => {
+        e.preventDefault();
+        const files = e.dataTransfer.files;
+        if (files && files.length > 0) {
+            document.getElementById('file-input').files = files;
+            toggleFileUpload();
+            uploadFile();
+        }
+    }, false);
+}
+
+// Simple lightbox
+function openLightbox(url) {
+    let modal = document.getElementById('lightbox-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'lightbox-modal';
+        modal.style.position = 'fixed';
+        modal.style.left = 0; modal.style.top = 0; modal.style.right = 0; modal.style.bottom = 0;
+        modal.style.background = 'rgba(0,0,0,0.85)';
+        modal.style.zIndex = 1050;
+        modal.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%"><img id="lightbox-img" style="max-width:90%;max-height:90%"></div>';
+        modal.addEventListener('click', () => modal.remove());
+        document.body.appendChild(modal);
+    }
+    const img = modal.querySelector('#lightbox-img');
+    img.src = url;
+    modal.style.display = 'block';
+}
+</script>
+{% endblock %}

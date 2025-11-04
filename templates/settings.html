@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - QuantumNet{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-md-8">
+    <div class="card">
+      <div class="card-header"><h5 class="mb-0"><i class="fas fa-cog me-2"></i>Settings</h5></div>
+      <div class="card-body">
+        <form method="POST">
+          <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="setting-dark" />
+            <label for="setting-dark" class="form-check-label">Enable dark mode</label>
+          </div>
+          <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="setting-notifs" />
+            <label for="setting-notifs" class="form-check-label">Enable browser notifications</label>
+          </div>
+          <button class="btn btn-primary" type="submit">Save</button>
+        </form>
+      </div>
+    </div>
+    <div class="card mt-3">
+      <div class="card-header"><h6 class="mb-0"><i class="fas fa-shield-alt me-2"></i>Two-Factor Authentication</h6></div>
+      <div class="card-body">
+        <button class="btn btn-outline-primary btn-sm" onclick="enable2FA()">Enable 2FA</button>
+        <div id="totp-info" class="mt-2 text-muted small"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+function enable2FA(){
+  fetch('/enable-2fa',{method:'POST'}).then(r=>r.json()).then(d=>{
+    if (!d.success) { alert('Failed to enable 2FA'); return; }
+    document.getElementById('totp-info').innerHTML = `Secret: <code>${d.secret}</code><br>URI: <code>${d.otpauth_url}</code>`;
+  });
+}
+document.addEventListener('DOMContentLoaded', function(){
+  const dark = document.getElementById('setting-dark');
+  const notifs = document.getElementById('setting-notifs');
+  try { dark.checked = localStorage.getItem('qn_dark') === '1'; } catch(e){}
+  try {
+    if (window.qnNotifications && Notification) {
+      notifs.checked = Notification.permission === 'granted';
+      notifs.addEventListener('change', ()=>{ if (notifs.checked) window.qnNotifications.ensurePermission(); });
+    }
+  } catch(e){}
+  dark.addEventListener('change', ()=>{
+    document.body.classList.toggle('dark', dark.checked);
+    localStorage.setItem('qn_dark', dark.checked ? '1' : '0');
+  });
+});
+</script>
+{% endblock %}
+
+

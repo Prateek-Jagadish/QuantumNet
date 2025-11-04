@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block title %}Profile - QuantumNet{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-user-circle me-2"></i>Profile Photo</h5>
+            </div>
+            <div class="card-body text-center">
+                <img id="profile-photo-img" src="{{ url_for('serve_profile_photo', user_id=session.user_id) }}" class="img-fluid rounded-circle mb-3" style="max-width: 200px;" onerror="this.src='{{ url_for('static', filename='img/default_profile.png') }}'">
+                <div class="mb-2">
+                    <span class="badge {{ 'bg-success' if user.is_online else 'bg-secondary' }}">{{ 'Online' if user.is_online else 'Offline' }}</span>
+                    {% if user.last_seen %}<small class="text-muted ms-2">Last seen {{ user.last_seen }}</small>{% endif %}
+                </div>
+                <div>
+                    <input type="file" id="profile-photo" accept="image/*" class="form-control mb-2">
+                    <button class="btn btn-primary btn-sm" onclick="uploadProfilePhoto()"><i class="fas fa-upload me-1"></i>Upload</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-id-card me-2"></i>Profile Details</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('profile') }}">
+                    <div class="mb-3">
+                        <label class="form-label">Username</label>
+                        <input type="text" class="form-control" value="{{ user.username }}" disabled>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-control" value="{{ user.email }}" disabled>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Phone</label>
+                        <input type="text" class="form-control" name="phone" value="{{ user.phone or '' }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Bio</label>
+                        <textarea class="form-control" name="bio" rows="3">{{ user.bio or '' }}</textarea>
+                    </div>
+                    <button class="btn btn-success" type="submit"><i class="fas fa-save me-1"></i>Save</button>
+                </form>
+            </div>
+        </div>
+        <div class="card mt-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-address-book me-2"></i>Contacts</h5>
+                <div class="input-group" style="max-width: 300px;">
+                    <span class="input-group-text"><i class="fas fa-search"></i></span>
+                    <input type="text" class="form-control" id="user-search" placeholder="Search users...">
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="search-results" class="mb-3"></div>
+                <div id="contacts-list"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function uploadProfilePhoto() {
+    const input = document.getElementById('profile-photo');
+    const file = input.files[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append('photo', file);
+    fetch('/api/profile/photo', { method: 'POST', body: form })
+        .then(r => r.json())
+        .then(d => {
+            if (d.success) {
+                const img = document.getElementById('profile-photo-img');
+                const base = img.src.split('?')[0];
+                img.src = base + '?t=' + Date.now();
+            }
+            else alert('Upload failed: ' + d.error);
+        })
+        .catch(e => alert('Upload error: ' + e.message));
+}
+
+document.getElementById('user-search').addEventListener('input', function() {
+    const q = this.value.trim();
+    if (!q) { document.getElementById('search-results').innerHTML=''; return; }
+    fetch('/api/search/users?q=' + encodeURIComponent(q))
+        .then(r => r.json())
+        .then(d => {
+            if (d.success) {
+                document.getElementById('search-results').innerHTML = d.users.map(u => `
+                    <div class="d-flex justify-content-between align-items-center border rounded p-2 mb-2">
+                        <div><strong>${u.username}</strong> <small class="text-muted">${u.email}</small></div>
+                        <div>
+                            <button class="btn btn-sm btn-outline-primary" onclick="addContact(${u.id})"><i class="fas fa-user-plus"></i></button>
+                        </div>
+                    </div>`).join('');
+            }
+        });
+});
+
+function loadContacts() {
+    fetch('/api/contacts')
+        .then(r => r.json())
+        .then(d => {
+            if (d.success) {
+                document.getElementById('contacts-list').innerHTML = d.contacts.map(c => `
+                    <div class="d-flex justify-content-between align-items-center border rounded p-2 mb-2">
+                        <div>
+                            <span class="badge ${c.is_online ? 'bg-success' : 'bg-secondary'} me-2">&nbsp;</span>
+                            <strong>${c.username}</strong> <small class="text-muted">${c.email}</small>
+                            <span class="ms-2 badge bg-light text-dark">${c.status}</span>
+                        </div>
+                        <div>
+                            <button class="btn btn-sm btn-outline-warning me-1" onclick="setStatus(${c.id}, 'favorite')"><i class="fas fa-star"></i></button>
+                            <button class="btn btn-sm btn-outline-secondary me-1" onclick="setStatus(${c.id}, 'normal')"><i class="fas fa-user"></i></button>
+                            <button class="btn btn-sm btn-outline-danger me-1" onclick="setStatus(${c.id}, 'blocked')"><i class="fas fa-ban"></i></button>
+                            <button class="btn btn-sm btn-outline-dark" onclick="removeContact(${c.id})"><i class="fas fa-user-minus"></i></button>
+                        </div>
+                    </div>`).join('');
+            }
+        });
+}
+
+function addContact(id) {
+    fetch('/api/contacts/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contact_id: id }) })
+        .then(r => r.json()).then(() => { loadContacts(); });
+}
+function removeContact(id) {
+    fetch('/api/contacts/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contact_id: id }) })
+        .then(r => r.json()).then(() => { loadContacts(); });
+}
+function setStatus(id, status) {
+    fetch('/api/contacts/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contact_id: id, status }) })
+        .then(r => r.json()).then(() => { loadContacts(); });
+}
+
+document.addEventListener('DOMContentLoaded', loadContacts);
+</script>
+{% endblock %}
+
+

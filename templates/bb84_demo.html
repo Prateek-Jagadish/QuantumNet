@@ -1,0 +1,588 @@
+{% extends "base.html" %}
+
+{% block title %}BB84 Quantum Key Distribution Demo - QuantumNet{% endblock %}
+
+{% block extra_head %}
+<style>
+.bb84-container {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 15px;
+    padding: 2rem;
+    margin: 2rem 0;
+}
+
+.bb84-step {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid #4CAF50;
+    animation: slideIn 0.5s ease-in;
+}
+
+.bb84-step.error {
+    border-left-color: #f44336;
+    background: rgba(244, 67, 54, 0.1);
+}
+
+.bb84-step.success {
+    border-left-color: #4CAF50;
+    background: rgba(76, 175, 80, 0.1);
+}
+
+@keyframes slideIn {
+    from { opacity: 0; transform: translateX(-20px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+.quantum-bits {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 1rem 0;
+}
+
+.quantum-bit {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 14px;
+    transition: all 0.3s ease;
+}
+
+.quantum-bit.alice {
+    background: #2196F3;
+    color: white;
+}
+
+.quantum-bit.bob {
+    background: #FF9800;
+    color: white;
+}
+
+.quantum-bit.match {
+    background: #4CAF50;
+    color: white;
+    animation: pulse 1s infinite;
+}
+
+.quantum-bit.mismatch {
+    background: #f44336;
+    color: white;
+    animation: shake 0.5s ease-in-out;
+}
+
+@keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+}
+
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin: 2rem 0;
+}
+
+.metric-card {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 1.5rem;
+    text-align: center;
+    backdrop-filter: blur(10px);
+}
+
+.metric-value {
+    font-size: 2rem;
+    font-weight: bold;
+    margin-bottom: 0.5rem;
+}
+
+.metric-label {
+    font-size: 0.9rem;
+    opacity: 0.8;
+}
+
+.security-alert {
+    background: rgba(244, 67, 54, 0.2);
+    border: 2px solid #f44336;
+    border-radius: 10px;
+    padding: 1rem;
+    margin: 1rem 0;
+    animation: glow 2s infinite;
+}
+
+@keyframes glow {
+    0%, 100% { box-shadow: 0 0 5px rgba(244, 67, 54, 0.5); }
+    50% { box-shadow: 0 0 20px rgba(244, 67, 54, 0.8); }
+}
+
+.progress-bar {
+    width: 100%;
+    height: 20px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 1rem 0;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4CAF50, #8BC34A);
+    width: 0%;
+    transition: width 0.5s ease;
+    border-radius: 10px;
+}
+
+.encryption-details {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 10px;
+    padding: 1rem;
+    margin: 1rem 0;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+}
+
+.hex-display {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 0.5rem;
+    border-radius: 5px;
+    font-family: 'Courier New', monospace;
+    word-break: break-all;
+    margin: 0.5rem 0;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2>
+                    <i class="fas fa-atom text-primary me-2"></i>
+                    BB84 Quantum Key Distribution Demo
+                </h2>
+                <div>
+                    <button class="btn btn-primary me-2" onclick="startBB84Demo()">
+                        <i class="fas fa-play me-1"></i>Start Demo
+                    </button>
+                    <button class="btn btn-warning me-2" onclick="simulateEavesdropping()">
+                        <i class="fas fa-user-secret me-1"></i>Simulate Eve
+                    </button>
+                    <a href="{{ url_for('security') }}" class="btn btn-outline-secondary">
+                        <i class="fas fa-arrow-left me-1"></i>Back to Security
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- BB84 Demo Container -->
+    <div class="bb84-container">
+        <div class="row">
+            <div class="col-md-8">
+                <h3 class="mb-4">
+                    <i class="fas fa-key me-2"></i>
+                    Live BB84 Protocol Simulation
+                </h3>
+                
+                <!-- Progress Bar -->
+                <div class="progress-bar">
+                    <div class="progress-fill" id="demo-progress"></div>
+                </div>
+                
+                <!-- Demo Steps -->
+                <div id="bb84-steps">
+                    <div class="bb84-step">
+                        <h5><i class="fas fa-user me-2"></i>Alice (Sender)</h5>
+                        <p>Click "Start Demo" to begin the quantum key distribution process...</p>
+                    </div>
+                </div>
+                
+                <!-- Quantum Bits Visualization -->
+                <div id="quantum-bits-container" style="display: none;">
+                    <h5>Quantum Bits Exchange</h5>
+                    <div class="quantum-bits" id="quantum-bits"></div>
+                </div>
+                
+                <!-- Encryption Details -->
+                <div id="encryption-details" class="encryption-details" style="display: none;">
+                    <h6>Encryption Process Details</h6>
+                    <div id="encryption-steps"></div>
+                </div>
+            </div>
+            
+            <div class="col-md-4">
+                <!-- Real-time Metrics -->
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-value" id="total-bits">0</div>
+                        <div class="metric-label">Total Bits</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="sifted-bits">0</div>
+                        <div class="metric-label">Sifted Bits</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="qber-value">0%</div>
+                        <div class="metric-label">QBER</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="final-key-length">0</div>
+                        <div class="metric-label">Final Key Length</div>
+                    </div>
+                </div>
+                
+                <!-- Security Status -->
+                <div id="security-status" class="mt-4">
+                    <div class="metric-card">
+                        <h6><i class="fas fa-shield-alt me-2"></i>Security Status</h6>
+                        <div id="security-indicator" class="text-success">
+                            <i class="fas fa-check-circle me-2"></i>Channel Secure
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Eve Simulation -->
+                <div id="eve-simulation" class="mt-4" style="display: none;">
+                    <div class="security-alert">
+                        <h6><i class="fas fa-exclamation-triangle me-2"></i>Eavesdropping Detected!</h6>
+                        <p class="mb-0">Eve is intercepting quantum bits. QBER will increase significantly.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Encryption Viewer -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-lock me-2"></i>
+                        Message Encryption Process
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>Original Message</h6>
+                            <textarea class="form-control" id="original-message" rows="3" placeholder="Enter a message to encrypt...">Hello, this is a quantum-encrypted message!</textarea>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Encrypted Result</h6>
+                            <div class="hex-display" id="encrypted-result">Click "Encrypt Message" to see the encrypted result...</div>
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <button class="btn btn-primary" onclick="encryptMessage()">
+                            <i class="fas fa-lock me-1"></i>Encrypt Message
+                        </button>
+                        <button class="btn btn-success ms-2" onclick="decryptMessage()">
+                            <i class="fas fa-unlock me-1"></i>Decrypt Message
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let demoRunning = false;
+let eveActive = false;
+let currentStep = 0;
+let totalSteps = 8;
+
+// BB84 Demo Functions
+function startBB84Demo() {
+    if (demoRunning) return;
+    
+    demoRunning = true;
+    currentStep = 0;
+    eveActive = false;
+    
+    // Reset UI
+    document.getElementById('bb84-steps').innerHTML = '';
+    document.getElementById('quantum-bits-container').style.display = 'none';
+    document.getElementById('encryption-details').style.display = 'none';
+    document.getElementById('eve-simulation').style.display = 'none';
+    document.getElementById('security-indicator').innerHTML = '<i class="fas fa-check-circle me-2"></i>Channel Secure';
+    document.getElementById('security-indicator').className = 'text-success';
+    
+    // Start demo steps
+    runBB84Steps();
+}
+
+function runBB84Steps() {
+    const steps = [
+        {
+            title: "Alice generates random bits",
+            description: "Alice creates a random sequence of bits (0s and 1s)",
+            duration: 2000,
+            action: () => generateAliceBits()
+        },
+        {
+            title: "Alice chooses random bases",
+            description: "Alice selects measurement bases (rectilinear or diagonal) for each bit",
+            duration: 2000,
+            action: () => generateAliceBases()
+        },
+        {
+            title: "Alice sends quantum bits",
+            description: "Alice transmits quantum bits through the quantum channel",
+            duration: 2000,
+            action: () => sendQuantumBits()
+        },
+        {
+            title: "Bob receives and measures",
+            description: "Bob measures the quantum bits with his own random bases",
+            duration: 2000,
+            action: () => bobMeasures()
+        },
+        {
+            title: "Basis comparison (sifting)",
+            description: "Alice and Bob compare their bases and discard mismatched bits",
+            duration: 2000,
+            action: () => siftBits()
+        },
+        {
+            title: "Error checking",
+            description: "Alice and Bob check for errors and calculate QBER",
+            duration: 2000,
+            action: () => checkErrors()
+        },
+        {
+            title: "Privacy amplification",
+            description: "Final key is generated using error correction and privacy amplification",
+            duration: 2000,
+            action: () => generateFinalKey()
+        },
+        {
+            title: "Key established",
+            description: "Secure quantum key is ready for encryption",
+            duration: 1000,
+            action: () => completeDemo()
+        }
+    ];
+    
+    function runNextStep() {
+        if (currentStep >= steps.length) {
+            demoRunning = false;
+            return;
+        }
+        
+        const step = steps[currentStep];
+        addBB84Step(step.title, step.description, step.action);
+        
+        setTimeout(() => {
+            currentStep++;
+            updateProgress();
+            runNextStep();
+        }, step.duration);
+    }
+    
+    runNextStep();
+}
+
+function addBB84Step(title, description, action) {
+    const stepsContainer = document.getElementById('bb84-steps');
+    const stepDiv = document.createElement('div');
+    stepDiv.className = 'bb84-step';
+    stepDiv.innerHTML = `
+        <h6><i class="fas fa-cog fa-spin me-2"></i>${title}</h6>
+        <p class="mb-0">${description}</p>
+    `;
+    
+    stepsContainer.appendChild(stepDiv);
+    
+    // Execute action
+    if (action) {
+        setTimeout(action, 500);
+    }
+    
+    // Scroll to bottom
+    stepsContainer.scrollTop = stepsContainer.scrollHeight;
+}
+
+function generateAliceBits() {
+    const bits = Array.from({length: 20}, () => Math.random() > 0.5 ? 1 : 0);
+    updateMetric('total-bits', bits.length);
+    showQuantumBits(bits, 'alice');
+}
+
+function generateAliceBases() {
+    const bases = Array.from({length: 20}, () => Math.random() > 0.5 ? 'rectilinear' : 'diagonal');
+    // Visual representation of bases
+    console.log('Alice bases:', bases);
+}
+
+function sendQuantumBits() {
+    document.getElementById('quantum-bits-container').style.display = 'block';
+    // Simulate quantum transmission
+    setTimeout(() => {
+        addBB84Step("Quantum bits transmitted", "Bits are sent through the quantum channel", null);
+    }, 1000);
+}
+
+function bobMeasures() {
+    const bobBases = Array.from({length: 20}, () => Math.random() > 0.5 ? 'rectilinear' : 'diagonal');
+    const bobResults = Array.from({length: 20}, () => Math.random() > 0.5 ? 1 : 0);
+    showQuantumBits(bobResults, 'bob');
+}
+
+function siftBits() {
+    const matchedBits = Math.floor(Math.random() * 10) + 5; // 5-15 matched bits
+    updateMetric('sifted-bits', matchedBits);
+    addBB84Step("Sifting complete", `${matchedBits} bits matched after basis comparison`, null);
+}
+
+function checkErrors() {
+    const qber = eveActive ? Math.random() * 0.3 + 0.1 : Math.random() * 0.05; // 0-5% normal, 10-40% with Eve
+    updateMetric('qber-value', (qber * 100).toFixed(1) + '%');
+    
+    if (qber > 0.11) { // Threshold for eavesdropping detection
+        document.getElementById('eve-simulation').style.display = 'block';
+        document.getElementById('security-indicator').innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i>Eavesdropping Detected!';
+        document.getElementById('security-indicator').className = 'text-danger';
+    }
+}
+
+function generateFinalKey() {
+    const finalKeyLength = Math.floor(Math.random() * 50) + 20; // 20-70 bits
+    updateMetric('final-key-length', finalKeyLength);
+    addBB84Step("Final key generated", `${finalKeyLength} bits of secure key ready`, null);
+}
+
+function completeDemo() {
+    addBB84Step("BB84 Protocol Complete", "Quantum key distribution successful!", null);
+    document.getElementById('encryption-details').style.display = 'block';
+    showEncryptionDetails();
+}
+
+function showQuantumBits(bits, type) {
+    const container = document.getElementById('quantum-bits');
+    container.innerHTML = '';
+    
+    bits.forEach((bit, index) => {
+        const bitDiv = document.createElement('div');
+        bitDiv.className = `quantum-bit ${type}`;
+        bitDiv.textContent = bit;
+        bitDiv.style.animationDelay = `${index * 100}ms`;
+        container.appendChild(bitDiv);
+    });
+}
+
+function showEncryptionDetails() {
+    const steps = [
+        "1. Original message: 'Hello, this is a quantum-encrypted message!'",
+        "2. Quantum key applied: 256-bit AES key from BB84 protocol",
+        "3. AES-256-EAX encryption performed",
+        "4. Encrypted data: [Binary ciphertext]",
+        "5. Authentication tag generated",
+        "6. Message ready for secure transmission"
+    ];
+    
+    const container = document.getElementById('encryption-steps');
+    container.innerHTML = steps.map(step => `<div class="mb-2">${step}</div>`).join('');
+}
+
+function updateMetric(id, value) {
+    const element = document.getElementById(id);
+    if (element) {
+        element.textContent = value;
+        element.style.animation = 'pulse 0.5s ease-in-out';
+        setTimeout(() => element.style.animation = '', 500);
+    }
+}
+
+function updateProgress() {
+    const progress = (currentStep / totalSteps) * 100;
+    document.getElementById('demo-progress').style.width = progress + '%';
+}
+
+function simulateEavesdropping() {
+    eveActive = true;
+    document.getElementById('eve-simulation').style.display = 'block';
+    showAlert('Eve is now intercepting quantum bits! QBER will increase significantly.', 'warning');
+}
+
+// Message Encryption Functions
+function encryptMessage() {
+    const message = document.getElementById('original-message').value;
+    if (!message) {
+        showAlert('Please enter a message to encrypt', 'warning');
+        return;
+    }
+    
+    // Simulate encryption process
+    const steps = [
+        'Encrypting with quantum key...',
+        'Applying AES-256-EAX...',
+        'Generating authentication tag...',
+        'Encryption complete!'
+    ];
+    
+    let stepIndex = 0;
+    const interval = setInterval(() => {
+        if (stepIndex < steps.length) {
+            document.getElementById('encrypted-result').textContent = steps[stepIndex];
+            stepIndex++;
+        } else {
+            clearInterval(interval);
+            // Show fake encrypted result
+            const fakeEncrypted = btoa(message).replace(/[A-Za-z0-9]/g, () => 
+                '0123456789ABCDEF'[Math.floor(Math.random() * 16)]
+            );
+            document.getElementById('encrypted-result').textContent = fakeEncrypted;
+        }
+    }, 500);
+}
+
+function decryptMessage() {
+    const encrypted = document.getElementById('encrypted-result').textContent;
+    if (encrypted.includes('Click') || encrypted.includes('Encrypting')) {
+        showAlert('Please encrypt a message first', 'warning');
+        return;
+    }
+    
+    // Simulate decryption
+    document.getElementById('encrypted-result').textContent = 'Decrypting with quantum key...';
+    setTimeout(() => {
+        document.getElementById('encrypted-result').textContent = 'Decryption complete! Original message restored.';
+    }, 1000);
+}
+
+function showAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    document.querySelector('.container-fluid').insertBefore(alertDiv, document.querySelector('.row'));
+    
+    setTimeout(() => {
+        if (alertDiv.parentNode) {
+            alertDiv.remove();
+        }
+    }, 5000);
+}
+</script>
+{% endblock %}
