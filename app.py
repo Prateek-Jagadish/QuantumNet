@@ -123,6 +123,8 @@ with app.app_context():
 
 
 @app.route('/')
+def home():
+    return "OK", 200
 def index():
     """Home page."""
     if 'user_id' in session:
@@ -330,9 +332,6 @@ def login():
     
     return render_template('login.html')
 
-@app.route('/health')
-def health():
-    return "OK", 200
 
 @app.route('/enable-2fa', methods=['POST'])
 @login_required
