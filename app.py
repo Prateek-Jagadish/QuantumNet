@@ -330,6 +330,9 @@ def login():
     
     return render_template('login.html')
 
+@app.route('/health')
+def health():
+    return "OK", 200
 
 @app.route('/enable-2fa', methods=['POST'])
 @login_required
