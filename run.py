@@ -16,7 +16,7 @@ if __name__ == '__main__':
     
     # Get host and port from configuration
     host = os.environ.get('HOST', '0.0.0.0')
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 8080))
     
     # Run the application
     print(f"Starting QuantumNet server on {host}:{port}")
