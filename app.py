@@ -38,6 +38,12 @@ app = Flask(__name__)
 config_class = get_config()
 app.config.from_object(config_class)
 
+# --- Health check endpoint for AWS ---
+@app.route("/health")
+def health_check():
+    return {"status": "healthy"}, 200
+
+
 # Initialize SocketIO with Redis message queue for multi-instance sync
 from config import get_redis_url, get_security_config
 # Use Redis for cross-process pub/sub only if reachable; otherwise fall back to in-process
@@ -123,8 +129,6 @@ with app.app_context():
 
 
 @app.route('/')
-def home():
-    return "OK", 200
 def index():
     """Home page."""
     if 'user_id' in session:
@@ -1440,7 +1444,7 @@ def handle_typing_stop(data):
 if __name__ == '__main__':
     # Get host and port from configuration
     host = os.environ.get('HOST', '0.0.0.0')
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 8080))
     
     # Run the application
     print(f"Starting QuantumNet server on {host}:{port}")
