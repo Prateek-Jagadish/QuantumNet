@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary-purple: #7C3AED;
+  --primary-blue: #3B82F6;
+  --primary-white: #FFFFFF;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: #F9FAFB;
+  color: #1F2937;
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, #7C3AED 0%, #3B82F6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gradient-bg {
+  background: linear-gradient(135deg, #7C3AED 0%, #3B82F6 100%);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f1f1; 
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1; 
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8; 
+}
