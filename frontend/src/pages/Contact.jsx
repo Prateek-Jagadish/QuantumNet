@@ -36,7 +36,7 @@ const Contact = () => {
       image: "/assets/Naveen24.jpeg",
       social: {
         linkedin: "https://www.linkedin.com/in/naveen-dodamani-81ab9533b",
-        github: "{link}"
+        github: "https://github.com/Naveen-D004"
       }
     },
     {
@@ -48,7 +48,7 @@ const Contact = () => {
       image: "/assets/om.png",
       social: {
         linkedin: "https://www.linkedin.com/in/omkar-hiremath-06a654376?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=android_app",
-        github: "{link}"
+        github: "https://github.com/Omkar-711"
       }
     },
     {
