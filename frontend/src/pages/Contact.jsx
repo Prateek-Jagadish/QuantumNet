@@ -33,9 +33,9 @@ const Contact = () => {
       name: "Naveen Dodamani",
       role: "Full Stack Developer",
       bio: "Expert in real-time systems and WebSocket architecture. Built the core messaging engine.",
-      image: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=400",
+      image: "/assets/Naveen24.jpeg",
       social: {
-        linkedin: "{link}",
+        linkedin: "https://www.linkedin.com/in/naveen-dodamani-81ab9533b",
         github: "{link}"
       }
     },
@@ -45,7 +45,7 @@ const Contact = () => {
       name: "Omkar Hiremath",
       role: "Security Engineer",
       bio: "Specialist in network security. Ensures the integrity and robustness of the BB84 simulation.",
-      image: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=400",
+      image: "/assets/om.png",
       social: {
         linkedin: "https://www.linkedin.com/in/omkar-hiremath-06a654376?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=android_app",
         github: "{link}"
@@ -57,7 +57,7 @@ const Contact = () => {
       name: "Prateek Hiremath",
       role: "AI Engineer",
       bio: "Focused on designing and deploying intelligent systems, algorithm optimization, and AI-powered feature development.",
-      image: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=400",
+      image: "/assets/prateek.jpeg",
       social: {
         linkedin: "www.linkedin.com/in/prateekhiremath6754",
         github: "https://github.com/Prateek-Jagadish"
@@ -69,7 +69,7 @@ const Contact = () => {
       name: "Rahul Kamati",
       role: "UI/UX Designer",
       bio: "Crafting intuitive interfaces for complex security tools. Designed the Live Encryption Demo.",
-      image: "https://drive.google.com/file/d/1hX13kldT-kOxrih0BELneXcFaPrfj2VF/view?usp=sharing",
+      image: "/assets/Rahul36.jpg",
       social: {
         linkedin: "https://www.linkedin.com/in/rahul-kamati-99a220286?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=ios_app",
         github: "https://github.com/rahul17-AI"
