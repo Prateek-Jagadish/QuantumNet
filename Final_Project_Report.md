@@ -8,7 +8,7 @@ Submitted in partial fulfillment of the requirements for the award of the degree
 
 IN
 
-**COMPUTER SCIENCE AND ENGINEERING**
+**ARTIFICIAL INTELLIGENCE AND DATA SCIENCE**
 
 ---
 
